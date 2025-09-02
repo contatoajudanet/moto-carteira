@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -40,6 +41,9 @@ export function NewSolicitationDialog({
     placa: '',
     solicitacao: '',
     valor: '',
+    valorCombustivel: '',
+    descricaoPecas: '',
+    status: '',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -62,9 +66,12 @@ export function NewSolicitationDialog({
       placa: formData.placa,
       solicitacao: formData.solicitacao,
       valor: parseFloat(formData.valor),
+      valorCombustivel: formData.valorCombustivel ? parseFloat(formData.valorCombustivel) : undefined,
+      descricaoPecas: formData.descricaoPecas || undefined,
+      status: formData.status || 'Fase de aprovação',
       aprovacao: 'pendente',
-      avisado: false,
-      aprovacaoSup: false,
+      avisado: true, // Fixo como true para todos
+      aprovacaoSup: 'pendente', // Sempre pendente para novas solicitações
     };
 
     onSubmit(solicitation);
@@ -78,6 +85,9 @@ export function NewSolicitationDialog({
       placa: '',
       solicitacao: '',
       valor: '',
+      valorCombustivel: '',
+      descricaoPecas: '',
+      status: '',
     });
 
     toast({
@@ -90,9 +100,12 @@ export function NewSolicitationDialog({
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  const isCombustivel = formData.solicitacao === 'Combustível';
+  const isPecas = formData.solicitacao === 'Vale Peças';
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px]">
+      <DialogContent className="sm:max-w-[700px]">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
             Nova Solicitação
@@ -176,17 +189,56 @@ export function NewSolicitationDialog({
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="valor">Valor Total (R$) *</Label>
+                <Input
+                  id="valor"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0,00"
+                  value={formData.valor}
+                  onChange={(e) => handleInputChange('valor', e.target.value)}
+                  required
+                />
+              </div>
+              {isCombustivel && (
+                <div className="space-y-2">
+                  <Label htmlFor="valorCombustivel">Valor Combustível (R$)</Label>
+                  <Input
+                    id="valorCombustivel"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0,00"
+                    value={formData.valorCombustivel}
+                    onChange={(e) => handleInputChange('valorCombustivel', e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+
+            {isPecas && (
+              <div className="space-y-2">
+                <Label htmlFor="descricaoPecas">Descrição das Peças</Label>
+                <Textarea
+                  id="descricaoPecas"
+                  placeholder="Descreva as peças necessárias..."
+                  value={formData.descricaoPecas}
+                  onChange={(e) => handleInputChange('descricaoPecas', e.target.value)}
+                  rows={3}
+                />
+              </div>
+            )}
+
             <div className="space-y-2">
-              <Label htmlFor="valor">Valor (R$) *</Label>
+              <Label htmlFor="status">Status</Label>
               <Input
-                id="valor"
-                type="number"
-                step="0.01"
-                min="0"
-                placeholder="0,00"
-                value={formData.valor}
-                onChange={(e) => handleInputChange('valor', e.target.value)}
-                required
+                id="status"
+                placeholder="Ex: Aguardando aprovação, Em análise..."
+                value={formData.status}
+                onChange={(e) => handleInputChange('status', e.target.value)}
               />
             </div>
           </div>

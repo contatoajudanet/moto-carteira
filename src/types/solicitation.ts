@@ -7,9 +7,12 @@ export interface Solicitation {
   placa: string;
   solicitacao: string;
   valor: number;
+  valorCombustivel?: number; // Valor específico para combustível
+  descricaoPecas?: string; // Descrição para peças
+  status: string; // Campo de texto livre para status
   aprovacao: 'pendente' | 'aprovado' | 'rejeitado';
-  avisado: boolean;
-  aprovacaoSup: boolean;
+  avisado: boolean; // Sempre true (fixo)
+  aprovacaoSup: 'pendente' | 'aprovado' | 'rejeitado'; // Três estados
   createdAt: Date;
 }
 
