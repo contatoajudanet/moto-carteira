@@ -1,0 +1,213 @@
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Solicitation } from '@/types/solicitation';
+import { useToast } from '@/hooks/use-toast';
+
+interface NewSolicitationDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (solicitation: Omit<Solicitation, 'id' | 'createdAt'>) => void;
+}
+
+export function NewSolicitationDialog({
+  open,
+  onOpenChange,
+  onSubmit,
+}: NewSolicitationDialogProps) {
+  const { toast } = useToast();
+  const [formData, setFormData] = useState({
+    data: new Date().toISOString().split('T')[0],
+    fone: '',
+    nome: '',
+    matricula: '',
+    placa: '',
+    solicitacao: '',
+    valor: '',
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!formData.nome || !formData.matricula || !formData.placa || !formData.solicitacao || !formData.valor) {
+      toast({
+        title: "Erro",
+        description: "Por favor, preencha todos os campos obrigatórios.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const solicitation: Omit<Solicitation, 'id' | 'createdAt'> = {
+      data: formData.data,
+      fone: formData.fone,
+      nome: formData.nome,
+      matricula: formData.matricula,
+      placa: formData.placa,
+      solicitacao: formData.solicitacao,
+      valor: parseFloat(formData.valor),
+      aprovacao: 'pendente',
+      avisado: false,
+      aprovacaoSup: false,
+    };
+
+    onSubmit(solicitation);
+    
+    // Reset form
+    setFormData({
+      data: new Date().toISOString().split('T')[0],
+      fone: '',
+      nome: '',
+      matricula: '',
+      placa: '',
+      solicitacao: '',
+      valor: '',
+    });
+
+    toast({
+      title: "Sucesso",
+      description: "Nova solicitação criada com sucesso!",
+    });
+  };
+
+  const handleInputChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[600px]">
+        <DialogHeader>
+          <DialogTitle className="text-xl font-semibold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+            Nova Solicitação
+          </DialogTitle>
+          <DialogDescription>
+            Preencha os dados para criar uma nova solicitação de combustível ou vale peças.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <form onSubmit={handleSubmit}>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="data">Data *</Label>
+                <Input
+                  id="data"
+                  type="date"
+                  value={formData.data}
+                  onChange={(e) => handleInputChange('data', e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="fone">Telefone</Label>
+                <Input
+                  id="fone"
+                  placeholder="(11) 99999-9999"
+                  value={formData.fone}
+                  onChange={(e) => handleInputChange('fone', e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="nome">Nome do Motoboy *</Label>
+                <Input
+                  id="nome"
+                  placeholder="João Silva"
+                  value={formData.nome}
+                  onChange={(e) => handleInputChange('nome', e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="matricula">Matrícula *</Label>
+                <Input
+                  id="matricula"
+                  placeholder="M001"
+                  value={formData.matricula}
+                  onChange={(e) => handleInputChange('matricula', e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="placa">Placa *</Label>
+                <Input
+                  id="placa"
+                  placeholder="ABC-1234"
+                  value={formData.placa}
+                  onChange={(e) => handleInputChange('placa', e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="solicitacao">Tipo de Solicitação *</Label>
+                <Select value={formData.solicitacao} onValueChange={(value) => handleInputChange('solicitacao', value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o tipo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Combustível">Combustível</SelectItem>
+                    <SelectItem value="Vale Peças">Vale Peças</SelectItem>
+                    <SelectItem value="Manutenção">Manutenção</SelectItem>
+                    <SelectItem value="Outros">Outros</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="valor">Valor (R$) *</Label>
+              <Input
+                id="valor"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="0,00"
+                value={formData.valor}
+                onChange={(e) => handleInputChange('valor', e.target.value)}
+                required
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              className="bg-gradient-to-r from-primary to-primary-glow hover:shadow-lg transition-all duration-300"
+            >
+              Criar Solicitação
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
