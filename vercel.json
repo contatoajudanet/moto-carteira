@@ -1,12 +1,8 @@
 {
+  "version": 2,
   "functions": {
-    "api/generate-pdf.ts": {
+    "api/**/*.ts": {
       "maxDuration": 30
-    }
-  },
-  "build": {
-    "env": {
-      "PUPPETEER_SKIP_CHROMIUM_DOWNLOAD": "true"
     }
   }
 }
