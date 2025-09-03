@@ -61,18 +61,27 @@ function generateHTML(data: PDFData): string {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  console.log('🚀 API generate-pdf chamada')
+  console.log('📝 Método:', req.method)
+  console.log('📊 Headers:', req.headers)
+  
   if (req.method !== 'POST') {
+    console.log('❌ Método não permitido:', req.method)
     return res.status(405).json({ error: 'Método não permitido' })
   }
 
   try {
     const data: PDFData = req.body
+    console.log('📋 Dados recebidos:', JSON.stringify(data, null, 2))
     
     // Validação básica dos dados
     if (!data.nome || !data.telefone || !data.tipoSolicitacao) {
+      console.log('❌ Dados obrigatórios faltando:', { nome: !!data.nome, telefone: !!data.telefone, tipoSolicitacao: !!data.tipoSolicitacao })
       return res.status(400).json({ error: 'Dados obrigatórios não fornecidos' })
     }
 
+    console.log('🔧 Iniciando Puppeteer...')
+    
     // Configuração do puppeteer para produção (Vercel)
     const browser = await puppeteer.launch({
       headless: true,
@@ -88,13 +97,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ]
     })
     
+    console.log('✅ Browser iniciado com sucesso')
+    
     const page = await browser.newPage()
+    console.log('📄 Nova página criada')
     
     // Renderizar HTML com os dados
     const html = generateHTML(data)
+    console.log('🎨 HTML gerado, renderizando...')
+    
     await page.setContent(html, { waitUntil: 'networkidle0' })
+    console.log('✅ HTML renderizado')
     
     // Gerar PDF
+    console.log('📄 Gerando PDF...')
     const pdf = await page.pdf({ 
       format: 'A4',
       printBackground: true,
@@ -106,17 +122,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     })
     
+    console.log('✅ PDF gerado, tamanho:', pdf.length, 'bytes')
+    
     await browser.close()
+    console.log('🔒 Browser fechado')
     
     // Configurar headers para download
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `attachment; filename=solicitacao_${data.nome.replace(/\s+/g, '_')}_${Date.now()}.pdf`)
     res.setHeader('Content-Length', pdf.length.toString())
     
+    console.log('📤 Enviando PDF...')
     res.send(pdf)
+    console.log('✅ PDF enviado com sucesso!')
     
   } catch (error) {
-    console.error('Erro ao gerar PDF:', error)
-    res.status(500).json({ error: 'Erro interno ao gerar PDF' })
+    console.error('💥 Erro detalhado:', error)
+    console.error('💥 Stack trace:', error instanceof Error ? error.stack : 'N/A')
+    
+    res.status(500).json({ 
+      error: 'Erro interno ao gerar PDF',
+      details: error instanceof Error ? error.message : 'Erro desconhecido',
+      timestamp: new Date().toISOString()
+    })
   }
 }
