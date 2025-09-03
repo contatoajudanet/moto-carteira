@@ -1,7 +1,7 @@
 export default function handler(req: any, res: any) {
   res.status(200).json({
-    status: 'ok',
+    message: 'API funcionando!',
     timestamp: new Date().toISOString(),
-    message: 'API funcionando perfeitamente!'
+    method: req.method
   })
 }
