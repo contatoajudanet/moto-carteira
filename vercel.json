@@ -1,6 +1,6 @@
 {
   "functions": {
-    "src/api/generate-pdf.ts": {
+    "api/generate-pdf.ts": {
       "maxDuration": 30
     }
   },
