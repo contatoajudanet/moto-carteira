@@ -1,5 +1,5 @@
 export const WEBHOOK_CONFIG = {
-  url: 'https://evo-youtube-n8n.3sbind.easypanel.host/webhook/3ea5325b-9c68-4fcb-9b75-8d3301f1a896',
+  url: 'https://evo-youtube-n8n.3sbind.easypanel.host/webhook-test/6fb80aa6-6aa4-45f6-90ea-37ae18b8ca1e',
   enabled: true,
   simulateInDevelopment: false,
   timeout: 10000,

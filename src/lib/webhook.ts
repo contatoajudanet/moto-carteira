@@ -5,7 +5,8 @@ export async function sendWebhookNotification(
   telefone: string,
   aprovacaoSup: string,
   tipoSolicitacao: string,
-  valor?: number
+  valor?: number,
+  pdfUrl?: string // URL do PDF opcional
 ): Promise<boolean> {
   if (!WEBHOOK_CONFIG.enabled) {
     console.log('📤 Webhook desabilitado');
@@ -23,7 +24,8 @@ export async function sendWebhookNotification(
     aprovacao_sup: aprovacaoSup,
     tipo_solicitacao: tipoSolicitacao,
     valor: valor || 0,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    pdf_url: pdfUrl || null // Incluir URL do PDF se disponível
   };
 
   try {

@@ -31,6 +31,8 @@ import { Solicitation } from '@/types/solicitation';
 import { CheckCircle, Clock, XCircle, Phone, User, Truck, Fuel, Wrench, AlertCircle, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { sendWebhookNotification } from '@/lib/webhook';
+import { generateLaudoPDF } from '@/lib/pdf-generator';
+import { uploadPDFToStorage } from '@/lib/supabase-storage';
 
 interface SolicitationTableProps {
   solicitations: Solicitation[];
@@ -82,51 +84,118 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
 
   const getSupApprovalToggle = (id: string, currentStatus: string, solicitation: Solicitation) => {
     const handleToggle = async (newStatus: 'pendente' | 'aprovado' | 'rejeitado') => {
-      // Atualizar localmente primeiro
-      const newStatusAutomatico = getStatusAutomatico(newStatus);
-      
-      onUpdate(id, { 
-        aprovacaoSup: newStatus,
-        status: newStatusAutomatico
-      });
+             // Se mudou para aprovado, gerar PDF primeiro
+       if (newStatus === 'aprovado') {
+         try {
+           // Preparar dados do laudo
+           const laudoData = {
+             nome: solicitation.nome,
+             telefone: solicitation.fone || 'Não informado',
+             placa: solicitation.placa,
+             solicitacao: solicitation.solicitacao as 'Combustivel' | 'Vale Pecas',
+             valorCombustivel: solicitation.valorCombustivel,
+             descricaoPecas: solicitation.descricaoPecas,
+             dataCriacao: solicitation.data
+           };
+           
+           // Gerar PDF
+           const pdfDoc = generateLaudoPDF(laudoData);
+           const pdfBlob = pdfDoc.output('blob');
+           
+           // Nome do arquivo
+           const filename = `laudo_${solicitation.nome.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
+           
+           // Upload para Supabase Storage
+           const pdfUrl = await uploadPDFToStorage(pdfBlob, filename);
+           
+           if (pdfUrl) {
+             // Atualizar solicitação com URL do PDF
+             onUpdate(solicitation.id, {
+               pdfLaudo: pdfUrl,
+               aprovacaoSup: newStatus,
+               status: getStatusAutomatico(newStatus)
+             });
+             
+             // Enviar webhook com URL do PDF
+             const webhookSuccess = await sendWebhookNotification(
+               solicitation.nome,
+               solicitation.fone || 'Não informado',
+               newStatus,
+               solicitation.solicitacao,
+               parseFloat(solicitation.valor || '0'),
+               pdfUrl // Incluir URL do PDF no webhook
+             );
 
-      // Se mudou para aprovado ou rejeitado, disparar webhook
-      if (newStatus !== 'pendente' && newStatus !== currentStatus) {
-        try {
-          const webhookSuccess = await sendWebhookNotification(
-            solicitation.nome,
-            solicitation.fone || 'Não informado',
-            newStatus,
-            solicitation.solicitacao,
-            solicitation.valor
-          );
+             if (webhookSuccess) {
+               toast({
+                 title: "Laudo gerado e webhook enviado",
+                 description: `PDF salvo e notificação enviada para ${solicitation.nome}`,
+               });
+             } else {
+               toast({
+                 title: "Laudo gerado mas webhook falhou",
+                 description: "PDF foi salvo mas falha ao enviar notificação",
+                 variant: "destructive",
+               });
+             }
+           } else {
+             toast({
+               title: "Erro ao gerar laudo",
+               description: "Falha ao salvar PDF no Storage",
+               variant: "destructive",
+             });
+           }
+         } catch (error) {
+           console.error('Erro ao gerar laudo:', error);
+           toast({
+             title: "Erro ao gerar laudo",
+             description: "Falha ao processar PDF",
+             variant: "destructive",
+           });
+         }
+       } else if (newStatus === 'rejeitado') {
+         // Para rejeitado, enviar webhook imediatamente
+         try {
+           const webhookSuccess = await sendWebhookNotification(
+             solicitation.nome,
+             solicitation.fone || 'Não informado',
+             newStatus,
+             solicitation.solicitacao,
+             parseFloat(solicitation.valor || '0')
+           );
 
-          if (webhookSuccess) {
-            toast({
-              title: "Notificação enviada",
-              description: `Webhook disparado para ${solicitation.nome}`,
-            });
-          } else {
-            toast({
-              title: "Erro na notificação",
-              description: "Falha ao enviar webhook, mas status foi atualizado",
-              variant: "destructive",
-            });
-          }
-        } catch (error) {
-          console.error('Erro ao enviar webhook:', error);
-          toast({
-            title: "Erro na notificação",
-            description: "Falha ao enviar webhook, mas status foi atualizado",
-            variant: "destructive",
-          });
-        }
-      }
+           if (webhookSuccess) {
+             toast({
+               title: "Notificação enviada",
+               description: `Webhook disparado para ${solicitation.nome}`,
+             });
+           } else {
+             toast({
+               title: "Erro na notificação",
+               description: "Falha ao enviar webhook, mas status foi atualizado",
+               variant: "destructive",
+             });
+           }
+         } catch (error) {
+           console.error('Erro ao enviar webhook:', error);
+           toast({
+             title: "Erro na notificação",
+             description: "Falha ao enviar webhook, mas status foi atualizado",
+             variant: "destructive",
+           });
+         }
+         
+         // Atualizar status após webhook
+         onUpdate(id, { 
+           aprovacaoSup: newStatus,
+           status: getStatusAutomatico(newStatus)
+         });
+       }
 
-      toast({
-        title: "Aprovação supervisora atualizada",
-        description: `Status alterado para: ${newStatus === 'aprovado' ? 'Aprovado' : newStatus === 'rejeitado' ? 'Rejeitado' : 'Pendente'}`,
-      });
+       toast({
+         title: "Aprovação supervisora atualizada",
+         description: `Status alterado para: ${newStatus === 'aprovado' ? 'Aprovado' : newStatus === 'rejeitado' ? 'Rejeitado' : 'Pendente'}`,
+       });
     };
 
     return (
@@ -266,14 +335,14 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
                 </TableCell>
                 <TableCell>
                   <div className="space-y-1">
-                    <div className="font-medium">
-                      R$ {solicitation.valor.toFixed(2)}
-                    </div>
-                    {solicitation.valorCombustivel && (
-                      <div className="text-xs text-blue-600">
-                        Comb: R$ {solicitation.valorCombustivel.toFixed(2)}
-                      </div>
-                    )}
+                                         <div className="font-medium">
+                       R$ {parseFloat(solicitation.valor || '0').toFixed(2)}
+                     </div>
+                     {solicitation.valorCombustivel && (
+                       <div className="text-xs text-blue-600">
+                         Comb: R$ {parseFloat(solicitation.valorCombustivel.toString() || '0').toFixed(2)}
+                       </div>
+                     )}
                   </div>
                 </TableCell>
                 <TableCell>
@@ -335,9 +404,9 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
             <AlertDialogDescription>
               Tem certeza que deseja excluir a solicitação de <strong>{solicitationToDelete?.nome}</strong>?
               <br />
-              <span className="text-sm text-muted-foreground">
-                Tipo: {solicitationToDelete?.solicitacao} | Valor: R$ {solicitationToDelete?.valor?.toFixed(2)}
-              </span>
+                             <span className="text-sm text-muted-foreground">
+                 Tipo: {solicitationToDelete?.solicitacao} | Valor: R$ {parseFloat(solicitationToDelete?.valor || '0').toFixed(2)}
+               </span>
               <br />
               <span className="text-red-600 font-medium">Esta ação não pode ser desfeita.</span>
             </AlertDialogDescription>
