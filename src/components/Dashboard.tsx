@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Plus, Truck, Clock, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import { SolicitationTable } from './SolicitationTable';
 import { NewSolicitationDialog } from './NewSolicitationDialog';
+import { SupervisorSelector } from './SupervisorSelector';
 import { Solicitation, SolicitationStatus } from '@/types/solicitation';
 import { useSupabase } from '@/hooks/use-supabase';
 import { useToast } from '@/hooks/use-toast';
@@ -11,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 export default function Dashboard() {
   const [solicitations, setSolicitations] = useState<Solicitation[]>([]);
   const [statusFilter, setStatusFilter] = useState<SolicitationStatus>('todas');
+  const [supervisorFilter, setSupervisorFilter] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   
   const { 
@@ -20,6 +22,7 @@ export default function Dashboard() {
     createSolicitation, 
     updateSolicitation,
     fetchSolicitationsByStatus,
+    fetchSolicitationsBySupervisor,
     deleteSolicitation
   } = useSupabase();
   
@@ -30,14 +33,32 @@ export default function Dashboard() {
     loadSolicitations();
   }, []);
 
-  // Carregar solicitações baseado no filtro
+  // Carregar solicitações baseado nos filtros
   useEffect(() => {
-    if (statusFilter === 'todas') {
-      loadSolicitations();
+    loadSolicitationsWithFilters();
+  }, [statusFilter, supervisorFilter]);
+
+  const loadSolicitationsWithFilters = async () => {
+    let data: Solicitation[] = [];
+    
+    if (supervisorFilter) {
+      // Se há filtro de supervisor, buscar por supervisor
+      data = await fetchSolicitationsBySupervisor(supervisorFilter);
+      
+      // Aplicar filtro de status se não for 'todas'
+      if (statusFilter !== 'todas') {
+        data = data.filter(solicitation => solicitation.aprovacao === statusFilter);
+      }
+    } else if (statusFilter === 'todas') {
+      // Se não há filtro de supervisor e status é 'todas', buscar todas
+      data = await fetchSolicitations();
     } else {
-      loadSolicitationsByStatus(statusFilter);
+      // Se não há filtro de supervisor mas há filtro de status
+      data = await fetchSolicitationsByStatus(statusFilter);
     }
-  }, [statusFilter]);
+    
+    setSolicitations(data);
+  };
 
   const loadSolicitations = async () => {
     const data = await fetchSolicitations();
@@ -104,11 +125,7 @@ export default function Dashboard() {
   };
 
   const handleRefresh = () => {
-    if (statusFilter === 'todas') {
-      loadSolicitations();
-    } else {
-      loadSolicitationsByStatus(statusFilter);
-    }
+    loadSolicitationsWithFilters();
   };
 
   const stats = {
@@ -163,6 +180,19 @@ export default function Dashboard() {
               <Plus className="w-4 h-4 mr-2" />
               Nova Solicitação
             </Button>
+          </div>
+        </div>
+
+        {/* Seletor de Supervisor */}
+        <div className="mb-6 p-4 bg-card rounded-lg border">
+          <div className="flex items-center gap-4">
+                    <SupervisorSelector
+          selectedSupervisorCodigo={supervisorFilter}
+          onSupervisorChange={setSupervisorFilter}
+        />
+            <div className="text-sm text-muted-foreground">
+              {supervisorFilter ? 'Filtrado por supervisor' : 'Mostrando todos os supervisores'}
+            </div>
           </div>
         </div>
 

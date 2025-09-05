@@ -19,24 +19,53 @@ export function useSupabase() {
 
       if (error) throw error;
       
+      console.log('📊 Dados brutos do Supabase:', data);
+      
+      // Buscar dados dos supervisores se houver supervisor_codigo
+      const supervisorCodigos = [...new Set(data?.map(item => item.supervisor_codigo).filter(Boolean) || [])];
+      let supervisorsMap: Record<string, any> = {};
+      
+      if (supervisorCodigos.length > 0) {
+        const { data: supervisorsData, error: supervisorsError } = await supabase
+          .from('supervisores_motoboy')
+          .select('id, codigo, nome')
+          .in('codigo', supervisorCodigos);
+          
+        if (!supervisorsError && supervisorsData) {
+          supervisorsMap = supervisorsData.reduce((acc, supervisor) => {
+            acc[supervisor.codigo] = supervisor;
+            return acc;
+          }, {} as Record<string, any>);
+        }
+      }
+      
       // Converter os dados do Supabase para o formato da aplicação
-      return data?.map(item => ({
-        id: item.id,
-        data: item.data,
-        fone: item.fone || '',
-        nome: item.nome,
-        matricula: item.matricula,
-        placa: item.placa,
-        solicitacao: item.solicitacao,
-        valor: parseFloat(item.valor),
-        valorCombustivel: item.valor_combustivel ? parseFloat(item.valor_combustivel) : undefined,
-        descricaoPecas: item.descricao_pecas || undefined,
-        status: item.status || 'Pendente',
-        aprovacao: item.aprovacao,
-        avisado: item.avisado,
-        aprovacaoSup: item.aprovacao_sup,
-        createdAt: new Date(item.created_at),
-      })) || [];
+      return data?.map(item => {
+        console.log(`📄 PDF Laudo para ${item.nome}:`, item.pdf_laudo);
+        return {
+          id: item.id,
+          data: item.data,
+          fone: item.fone || '',
+          nome: item.nome,
+          matricula: item.matricula,
+          placa: item.placa,
+          solicitacao: item.solicitacao,
+          valor: item.valor,
+          valorCombustivel: item.valor_combustivel ? parseFloat(item.valor_combustivel) : undefined,
+          descricaoPecas: item.descricao_pecas || undefined,
+          status: item.status || 'Pendente',
+          aprovacao: item.aprovacao,
+          avisado: item.avisado,
+          aprovacaoSup: item.aprovacao_sup,
+          pdfLaudo: item.pdf_laudo || undefined,
+          valorPeca: item.valor_peca ? parseFloat(item.valor_peca) : undefined,
+          lojaAutorizada: item.loja_autorizada || undefined,
+          descricaoCompletaPecas: item.descricao_completa_pecas || undefined,
+          supervisor_codigo: item.supervisor_codigo || undefined,
+          supervisor: item.supervisor_codigo ? supervisorsMap[item.supervisor_codigo] || undefined : undefined,
+          created_at: item.created_at,
+        };
+      }) || [];
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao buscar solicitações';
       setError(errorMessage);
@@ -82,14 +111,18 @@ export function useSupabase() {
         matricula: data.matricula,
         placa: data.placa,
         solicitacao: data.solicitacao,
-        valor: parseFloat(data.valor),
+        valor: data.valor,
         valorCombustivel: data.valor_combustivel ? parseFloat(data.valor_combustivel) : undefined,
         descricaoPecas: data.descricao_pecas || undefined,
         status: data.status || 'Pendente',
         aprovacao: data.aprovacao,
         avisado: data.avisado,
         aprovacaoSup: data.aprovacao_sup,
-        createdAt: new Date(data.created_at),
+        pdfLaudo: data.pdf_laudo || undefined,
+        valorPeca: data.valor_peca ? parseFloat(data.valor_peca) : undefined,
+        lojaAutorizada: data.loja_autorizada || undefined,
+        descricaoCompletaPecas: data.descricao_completa_pecas || undefined,
+        created_at: data.created_at,
       };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao criar solicitação';
@@ -121,6 +154,11 @@ export function useSupabase() {
       if (updates.aprovacao !== undefined) updateData.aprovacao = updates.aprovacao;
       if (updates.avisado !== undefined) updateData.avisado = updates.avisado;
       if (updates.aprovacaoSup !== undefined) updateData.aprovacao_sup = updates.aprovacaoSup;
+      if (updates.pdfLaudo !== undefined) updateData.pdf_laudo = updates.pdfLaudo;
+      if (updates.valorPeca !== undefined) updateData.valor_peca = updates.valorPeca;
+      if (updates.lojaAutorizada !== undefined) updateData.loja_autorizada = updates.lojaAutorizada;
+      if (updates.descricaoCompletaPecas !== undefined) updateData.descricao_completa_pecas = updates.descricaoCompletaPecas;
+      if (updates.supervisor_codigo !== undefined) updateData.supervisor_codigo = updates.supervisor_codigo;
 
       console.log('📝 Dados para atualização:', { id, updateData });
 
@@ -153,12 +191,35 @@ export function useSupabase() {
     setError(null);
     
     try {
+      // Primeiro, buscar a solicitação para obter a URL do PDF
+      const { data: solicitation, error: fetchError } = await supabase
+        .from('solicitacoes_motoboy')
+        .select('pdf_laudo')
+        .eq('id', id)
+        .single();
+
+      if (fetchError) {
+        console.error('Erro ao buscar solicitação para deletar:', fetchError);
+      }
+
+      // Deletar a solicitação do banco
       const { error } = await supabase
         .from('solicitacoes_motoboy')
         .delete()
         .eq('id', id);
 
       if (error) throw error;
+
+      // Se existe PDF, deletar do storage
+      if (solicitation?.pdf_laudo) {
+        try {
+          const { deletePDFFromStorage } = await import('@/lib/supabase-storage');
+          await deletePDFFromStorage(solicitation.pdf_laudo);
+        } catch (storageError) {
+          console.error('Erro ao deletar PDF do storage:', storageError);
+          // Não falha a operação se não conseguir deletar o PDF
+        }
+      }
       
       return true;
     } catch (err) {
@@ -188,6 +249,24 @@ export function useSupabase() {
 
       if (error) throw error;
       
+      // Buscar dados dos supervisores se houver supervisor_codigo
+      const supervisorCodigos = [...new Set(data?.map(item => item.supervisor_codigo).filter(Boolean) || [])];
+      let supervisorsMap: Record<string, any> = {};
+      
+      if (supervisorCodigos.length > 0) {
+        const { data: supervisorsData, error: supervisorsError } = await supabase
+          .from('supervisores_motoboy')
+          .select('id, codigo, nome')
+          .in('codigo', supervisorCodigos);
+          
+        if (!supervisorsError && supervisorsData) {
+          supervisorsMap = supervisorsData.reduce((acc, supervisor) => {
+            acc[supervisor.codigo] = supervisor;
+            return acc;
+          }, {} as Record<string, any>);
+        }
+      }
+      
       return data?.map(item => ({
         id: item.id,
         data: item.data,
@@ -196,14 +275,88 @@ export function useSupabase() {
         matricula: item.matricula,
         placa: item.placa,
         solicitacao: item.solicitacao,
-        valor: parseFloat(item.valor),
+        valor: item.valor,
         valorCombustivel: item.valor_combustivel ? parseFloat(item.valor_combustivel) : undefined,
         descricaoPecas: item.descricao_pecas || undefined,
         status: item.status || 'Pendente',
         aprovacao: item.aprovacao,
         avisado: item.avisado,
         aprovacaoSup: item.aprovacao_sup,
-        createdAt: new Date(item.created_at),
+        pdfLaudo: item.pdf_laudo || undefined,
+        valorPeca: item.valor_peca ? parseFloat(item.valor_peca) : undefined,
+        lojaAutorizada: item.loja_autorizada || undefined,
+        descricaoCompletaPecas: item.descricao_completa_pecas || undefined,
+        supervisor_codigo: item.supervisor_codigo || undefined,
+        supervisor: item.supervisor_codigo ? supervisorsMap[item.supervisor_codigo] || undefined : undefined,
+        created_at: item.created_at,
+      })) || [];
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Erro ao buscar solicitações';
+      setError(errorMessage);
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Buscar solicitações por supervisor
+  const fetchSolicitationsBySupervisor = async (supervisorCodigo: string | null): Promise<Solicitation[]> => {
+    if (!supervisorCodigo) {
+      return fetchSolicitations();
+    }
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const { data, error } = await supabase
+        .from('solicitacoes_motoboy')
+        .select('*')
+        .eq('supervisor_codigo', supervisorCodigo)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      
+      // Buscar dados dos supervisores se houver supervisor_codigo
+      const supervisorCodigos = [...new Set(data?.map(item => item.supervisor_codigo).filter(Boolean) || [])];
+      let supervisorsMap: Record<string, any> = {};
+      
+      if (supervisorCodigos.length > 0) {
+        const { data: supervisorsData, error: supervisorsError } = await supabase
+          .from('supervisores_motoboy')
+          .select('id, codigo, nome')
+          .in('codigo', supervisorCodigos);
+          
+        if (!supervisorsError && supervisorsData) {
+          supervisorsMap = supervisorsData.reduce((acc, supervisor) => {
+            acc[supervisor.codigo] = supervisor;
+            return acc;
+          }, {} as Record<string, any>);
+        }
+      }
+      
+      return data?.map(item => ({
+        id: item.id,
+        data: item.data,
+        fone: item.fone || '',
+        nome: item.nome,
+        matricula: item.matricula,
+        placa: item.placa,
+        solicitacao: item.solicitacao,
+        valor: item.valor,
+        valorCombustivel: item.valor_combustivel ? parseFloat(item.valor_combustivel) : undefined,
+        descricaoPecas: item.descricao_pecas || undefined,
+        status: item.status || 'Pendente',
+        aprovacao: item.aprovacao,
+        avisado: item.avisado,
+        aprovacaoSup: item.aprovacao_sup,
+        pdfLaudo: item.pdf_laudo || undefined,
+        valorPeca: item.valor_peca ? parseFloat(item.valor_peca) : undefined,
+        lojaAutorizada: item.loja_autorizada || undefined,
+        descricaoCompletaPecas: item.descricao_completa_pecas || undefined,
+        supervisor_codigo: item.supervisor_codigo || undefined,
+        supervisor: item.supervisor_codigo ? supervisorsMap[item.supervisor_codigo] || undefined : undefined,
+        created_at: item.created_at,
       })) || [];
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao buscar solicitações';
@@ -222,5 +375,6 @@ export function useSupabase() {
     updateSolicitation,
     deleteSolicitation,
     fetchSolicitationsByStatus,
+    fetchSolicitationsBySupervisor,
   };
 }

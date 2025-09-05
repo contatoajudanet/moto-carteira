@@ -32,6 +32,40 @@ export const uploadPDFToStorage = async (
   }
 };
 
+export const deletePDFFromStorage = async (pdfUrl: string): Promise<boolean> => {
+  try {
+    // Extrair o caminho do arquivo da URL
+    const url = new URL(pdfUrl);
+    const pathParts = url.pathname.split('/');
+    const bucketIndex = pathParts.findIndex(part => part === 'motoboy-documents');
+    
+    if (bucketIndex === -1) {
+      console.error('URL do PDF inválida:', pdfUrl);
+      return false;
+    }
+    
+    // Reconstruir o caminho do arquivo
+    const filePath = pathParts.slice(bucketIndex + 1).join('/');
+    
+    console.log('🗑️ Deletando PDF do storage:', filePath);
+    
+    const { error } = await supabase.storage
+      .from('motoboy-documents')
+      .remove([filePath]);
+
+    if (error) {
+      console.error('Erro ao deletar PDF do storage:', error);
+      return false;
+    }
+
+    console.log('✅ PDF deletado do storage com sucesso');
+    return true;
+  } catch (error) {
+    console.error('Erro ao deletar PDF do storage:', error);
+    return false;
+  }
+};
+
 export const createStorageBucket = async () => {
   try {
     const { data, error } = await supabase.storage.createBucket('motoboy-documents', {

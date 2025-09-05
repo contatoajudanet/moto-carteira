@@ -16,6 +16,17 @@ export interface Solicitation {
   created_at?: string;
   updated_at?: string;
   pdfLaudo?: string; // Caminho do PDF no Supabase Storage
+  // Novos campos para peças
+  valorPeca?: number | null; // Valor autorizado da peça
+  lojaAutorizada?: string | null; // Loja onde a peça pode ser retirada
+  descricaoCompletaPecas?: string | null; // Descrição completa da peça
+  // Campo para supervisor
+  supervisor_codigo?: string | null; // Código do supervisor responsável (ex: "1234", "12345")
+  supervisor?: {
+    id: string;
+    codigo: string;
+    nome: string;
+  } | null; // Dados do supervisor (populado via join)
 }
 
 export type SolicitationStatus = 'todas' | 'pendente' | 'aprovado' | 'rejeitado';

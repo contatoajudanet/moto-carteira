@@ -27,12 +27,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { Solicitation } from '@/types/solicitation';
-import { CheckCircle, Clock, XCircle, Phone, User, Truck, Fuel, Wrench, AlertCircle, Trash2 } from 'lucide-react';
+import { CheckCircle, Clock, XCircle, Phone, User, Truck, Fuel, Wrench, AlertCircle, Trash2, Eye, ChevronDown, Download, FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { sendWebhookNotification } from '@/lib/webhook';
+import { sendWebhookNotification, sendPecasWebhookNotification } from '@/lib/webhook';
 import { generateLaudoPDF } from '@/lib/pdf-generator';
+import { generatePecasLaudoPDF } from '@/lib/pecas-pdf-generator';
 import { uploadPDFToStorage } from '@/lib/supabase-storage';
+import { PecasValueDialog } from '@/components/PecasValueDialog';
 
 interface SolicitationTableProps {
   solicitations: Solicitation[];
@@ -44,6 +54,178 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
   const { toast } = useToast();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [solicitationToDelete, setSolicitationToDelete] = useState<Solicitation | null>(null);
+  const [expandedDescription, setExpandedDescription] = useState<string | null>(null);
+  const [pecasDialogOpen, setPecasDialogOpen] = useState(false);
+  const [solicitationForPecas, setSolicitationForPecas] = useState<Solicitation | null>(null);
+  const [pdfModalOpen, setPdfModalOpen] = useState(false);
+  const [currentPdfUrl, setCurrentPdfUrl] = useState<string | null>(null);
+  const [currentPdfName, setCurrentPdfName] = useState<string>('');
+
+  // Função para gerar descrição curta das peças
+  const getShortDescription = (description: string, maxLength: number = 50) => {
+    if (!description) return '';
+    if (description.length <= maxLength) return description;
+    return description.substring(0, maxLength) + '...';
+  };
+
+  const formatPhoneNumber = (phone: string) => {
+    // Remove o sufixo @s.whatsapp.net se existir
+    const cleanPhone = phone.replace('@s.whatsapp.net', '');
+    
+    // Se o número começar com 55 (código do Brasil), remove
+    let number = cleanPhone;
+    if (number.startsWith('55')) {
+      number = number.substring(2);
+    }
+    
+    // Formatar para (XX) 9 XXXX-XXXX
+    if (number.length === 11) {
+      return `(${number.substring(0, 2)}) ${number.substring(2, 3)} ${number.substring(3, 7)}-${number.substring(7)}`;
+    } else if (number.length === 10) {
+      return `(${number.substring(0, 2)}) ${number.substring(2, 6)}-${number.substring(6)}`;
+    }
+    
+    // Se não conseguir formatar, retorna o número original
+    return cleanPhone;
+  };
+
+  // Função para verificar se é solicitação de peças
+  const isPecasSolicitation = (solicitacao: string) => {
+    return solicitacao.toLowerCase().includes('peças') || solicitacao.toLowerCase().includes('pecas');
+  };
+
+  // Função para lidar com visualização do PDF em modal
+  const handlePDFAction = async (solicitation: Solicitation) => {
+    if (!solicitation.pdfLaudo) {
+      toast({
+        title: "PDF não disponível",
+        description: "Este laudo ainda não foi gerado",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setCurrentPdfUrl(solicitation.pdfLaudo);
+      setCurrentPdfName(`Laudo_${solicitation.nome.replace(/\s+/g, '_')}.pdf`);
+      setPdfModalOpen(true);
+    } catch (error) {
+      console.error('Erro ao abrir PDF:', error);
+      toast({
+        title: "Erro ao abrir PDF",
+        description: "Não foi possível abrir o documento",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Função para download do PDF
+  const handleDownloadPDF = () => {
+    if (!currentPdfUrl) return;
+    
+    try {
+      const link = document.createElement('a');
+      link.href = currentPdfUrl;
+      link.download = currentPdfName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast({
+        title: "Download iniciado",
+        description: "O PDF está sendo baixado",
+      });
+    } catch (error) {
+      console.error('Erro ao baixar PDF:', error);
+      toast({
+        title: "Erro no download",
+        description: "Não foi possível baixar o PDF",
+        variant: "destructive",
+      });
+    }
+  };
+
+
+  // Função para lidar com confirmação dos dados da peça
+  const handlePecasConfirm = async (data: { valorPeca: number; loja: string; descricaoCompleta: string }) => {
+    if (!solicitationForPecas) return;
+
+    try {
+      // Gerar PDF específico para peças
+      const pecasLaudoData = {
+        nome: solicitationForPecas.nome,
+        telefone: solicitationForPecas.fone || 'Não informado',
+        placa: solicitationForPecas.placa,
+        matricula: solicitationForPecas.matricula,
+        descricaoPecas: data.descricaoCompleta,
+        valorPeca: data.valorPeca,
+        loja: data.loja,
+        dataCriacao: solicitationForPecas.data
+      };
+
+      const pdfDoc = generatePecasLaudoPDF(pecasLaudoData);
+      const pdfBlob = pdfDoc.output('blob');
+      
+      // Nome do arquivo
+      const filename = `laudo_pecas_${solicitationForPecas.nome.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
+      
+      // Upload para Supabase Storage
+      const pdfUrl = await uploadPDFToStorage(pdfBlob, filename);
+      
+      if (pdfUrl) {
+        // Atualizar solicitação com dados da peça e URL do PDF
+        onUpdate(solicitationForPecas.id, {
+          aprovacaoSup: 'aprovado',
+          status: 'Aprovado pelo supervisor',
+          valorPeca: data.valorPeca,
+          lojaAutorizada: data.loja,
+          descricaoCompletaPecas: data.descricaoCompleta,
+          pdfLaudo: pdfUrl
+        });
+        
+        // Enviar webhook específico para peças
+        const webhookSuccess = await sendPecasWebhookNotification(
+          solicitationForPecas.nome,
+          solicitationForPecas.fone || 'Não informado',
+          'aprovado',
+          data.descricaoCompleta,
+          data.valorPeca,
+          data.loja,
+          pdfUrl
+        );
+
+        if (webhookSuccess) {
+          toast({
+            title: "Peça autorizada com sucesso",
+            description: `PDF gerado e notificação enviada para ${solicitationForPecas.nome}`,
+          });
+        } else {
+          toast({
+            title: "Peça autorizada mas webhook falhou",
+            description: "PDF foi gerado mas falha ao enviar notificação",
+            variant: "destructive",
+          });
+        }
+      } else {
+        toast({
+          title: "Erro ao gerar laudo de peça",
+          description: "Falha ao salvar PDF no Storage",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Erro ao processar aprovação de peça:', error);
+      toast({
+        title: "Erro ao processar aprovação",
+        description: "Falha ao processar dados da peça",
+        variant: "destructive",
+      });
+    }
+
+    // Limpar estado
+    setSolicitationForPecas(null);
+    setPecasDialogOpen(false);
+  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -84,118 +266,144 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
 
   const getSupApprovalToggle = (id: string, currentStatus: string, solicitation: Solicitation) => {
     const handleToggle = async (newStatus: 'pendente' | 'aprovado' | 'rejeitado') => {
-             // Se mudou para aprovado, gerar PDF primeiro
-       if (newStatus === 'aprovado') {
-         try {
-           // Preparar dados do laudo
-           const laudoData = {
-             nome: solicitation.nome,
-             telefone: solicitation.fone || 'Não informado',
-             placa: solicitation.placa,
-             solicitacao: solicitation.solicitacao as 'Combustivel' | 'Vale Pecas',
-             valorCombustivel: solicitation.valorCombustivel,
-             descricaoPecas: solicitation.descricaoPecas,
-             dataCriacao: solicitation.data
-           };
-           
-           // Gerar PDF
-           const pdfDoc = generateLaudoPDF(laudoData);
-           const pdfBlob = pdfDoc.output('blob');
-           
-           // Nome do arquivo
-           const filename = `laudo_${solicitation.nome.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
-           
-           // Upload para Supabase Storage
-           const pdfUrl = await uploadPDFToStorage(pdfBlob, filename);
-           
-           if (pdfUrl) {
-             // Atualizar solicitação com URL do PDF
-             onUpdate(solicitation.id, {
-               pdfLaudo: pdfUrl,
-               aprovacaoSup: newStatus,
-               status: getStatusAutomatico(newStatus)
-             });
-             
-             // Enviar webhook com URL do PDF
-             const webhookSuccess = await sendWebhookNotification(
-               solicitation.nome,
-               solicitation.fone || 'Não informado',
-               newStatus,
-               solicitation.solicitacao,
-               parseFloat(solicitation.valor || '0'),
-               pdfUrl // Incluir URL do PDF no webhook
-             );
+      // Se mudou para aprovado
+      if (newStatus === 'aprovado') {
+        // Verificar se é solicitação de peças
+        if (isPecasSolicitation(solicitation.solicitacao)) {
+          // Para peças, abrir dialog para solicitar dados
+          setSolicitationForPecas(solicitation);
+          setPecasDialogOpen(true);
+          return; // Não continuar com o fluxo normal
+        } else {
+          // Para combustível, seguir fluxo normal
+          try {
+            // Preparar dados do laudo
+            const laudoData = {
+              nome: solicitation.nome,
+              telefone: solicitation.fone || 'Não informado',
+              placa: solicitation.placa,
+              solicitacao: solicitation.solicitacao as 'Combustivel' | 'Vale Pecas',
+              valorCombustivel: solicitation.valorCombustivel,
+              descricaoPecas: solicitation.descricaoPecas,
+              dataCriacao: solicitation.data,
+              supervisor: solicitation.supervisor
+            };
+            
+            // Gerar PDF
+            const pdfDoc = generateLaudoPDF(laudoData);
+            const pdfBlob = pdfDoc.output('blob');
+            
+            // Nome do arquivo
+            const filename = `laudo_${solicitation.nome.replace(/\s+/g, '_')}_${Date.now()}.pdf`;
+            
+            // Upload para Supabase Storage
+            const pdfUrl = await uploadPDFToStorage(pdfBlob, filename);
+            
+            if (pdfUrl) {
+              // Atualizar solicitação com URL do PDF
+              onUpdate(solicitation.id, {
+                pdfLaudo: pdfUrl,
+                aprovacaoSup: newStatus,
+                status: getStatusAutomatico(newStatus)
+              });
+              
+              // Enviar webhook com URL do PDF
+              const webhookSuccess = await sendWebhookNotification(
+                solicitation.nome,
+                solicitation.fone || 'Não informado',
+                newStatus,
+                solicitation.solicitacao,
+                parseFloat(solicitation.valor || '0'),
+                pdfUrl // Incluir URL do PDF no webhook
+              );
 
-             if (webhookSuccess) {
-               toast({
-                 title: "Laudo gerado e webhook enviado",
-                 description: `PDF salvo e notificação enviada para ${solicitation.nome}`,
-               });
-             } else {
-               toast({
-                 title: "Laudo gerado mas webhook falhou",
-                 description: "PDF foi salvo mas falha ao enviar notificação",
-                 variant: "destructive",
-               });
-             }
-           } else {
-             toast({
-               title: "Erro ao gerar laudo",
-               description: "Falha ao salvar PDF no Storage",
-               variant: "destructive",
-             });
-           }
-         } catch (error) {
-           console.error('Erro ao gerar laudo:', error);
-           toast({
-             title: "Erro ao gerar laudo",
-             description: "Falha ao processar PDF",
-             variant: "destructive",
-           });
-         }
-       } else if (newStatus === 'rejeitado') {
-         // Para rejeitado, enviar webhook imediatamente
-         try {
-           const webhookSuccess = await sendWebhookNotification(
-             solicitation.nome,
-             solicitation.fone || 'Não informado',
-             newStatus,
-             solicitation.solicitacao,
-             parseFloat(solicitation.valor || '0')
-           );
+              if (webhookSuccess) {
+                toast({
+                  title: "Laudo gerado e webhook enviado",
+                  description: `PDF salvo e notificação enviada para ${solicitation.nome}`,
+                });
+              } else {
+                toast({
+                  title: "Laudo gerado mas webhook falhou",
+                  description: "PDF foi salvo mas falha ao enviar notificação",
+                  variant: "destructive",
+                });
+              }
+            } else {
+              toast({
+                title: "Erro ao gerar laudo",
+                description: "Falha ao salvar PDF no Storage",
+                variant: "destructive",
+              });
+            }
+          } catch (error) {
+            console.error('Erro ao gerar laudo:', error);
+            toast({
+              title: "Erro ao gerar laudo",
+              description: "Falha ao processar PDF",
+              variant: "destructive",
+            });
+          }
+        }
+      } else if (newStatus === 'rejeitado') {
+        // Para rejeitado, enviar webhook imediatamente
+        try {
+          let webhookSuccess;
+          
+          if (isPecasSolicitation(solicitation.solicitacao)) {
+            // Webhook específico para peças rejeitadas
+            webhookSuccess = await sendPecasWebhookNotification(
+              solicitation.nome,
+              solicitation.fone || 'Não informado',
+              newStatus,
+              solicitation.descricaoPecas || '',
+              0,
+              '',
+              undefined
+            );
+          } else {
+            // Webhook normal para combustível
+            webhookSuccess = await sendWebhookNotification(
+              solicitation.nome,
+              solicitation.fone || 'Não informado',
+              newStatus,
+              solicitation.solicitacao,
+              parseFloat(solicitation.valor || '0')
+            );
+          }
 
-           if (webhookSuccess) {
-             toast({
-               title: "Notificação enviada",
-               description: `Webhook disparado para ${solicitation.nome}`,
-             });
-           } else {
-             toast({
-               title: "Erro na notificação",
-               description: "Falha ao enviar webhook, mas status foi atualizado",
-               variant: "destructive",
-             });
-           }
-         } catch (error) {
-           console.error('Erro ao enviar webhook:', error);
-           toast({
-             title: "Erro na notificação",
-             description: "Falha ao enviar webhook, mas status foi atualizado",
-             variant: "destructive",
-           });
-         }
-         
-         // Atualizar status após webhook
-         onUpdate(id, { 
-           aprovacaoSup: newStatus,
-           status: getStatusAutomatico(newStatus)
-         });
-       }
+          if (webhookSuccess) {
+            toast({
+              title: "Notificação enviada",
+              description: `Webhook disparado para ${solicitation.nome}`,
+            });
+          } else {
+            toast({
+              title: "Erro na notificação",
+              description: "Falha ao enviar webhook, mas status foi atualizado",
+              variant: "destructive",
+            });
+          }
+        } catch (error) {
+          console.error('Erro ao enviar webhook:', error);
+          toast({
+            title: "Erro na notificação",
+            description: "Falha ao enviar webhook, mas status foi atualizado",
+            variant: "destructive",
+          });
+        }
+        
+        // Atualizar status após webhook
+        onUpdate(id, { 
+          aprovacaoSup: newStatus,
+          status: getStatusAutomatico(newStatus)
+        });
+      }
 
-       toast({
-         title: "Aprovação supervisora atualizada",
-         description: `Status alterado para: ${newStatus === 'aprovado' ? 'Aprovado' : newStatus === 'rejeitado' ? 'Rejeitado' : 'Pendente'}`,
-       });
+      toast({
+        title: "Aprovação supervisora atualizada",
+        description: `Status alterado para: ${newStatus === 'aprovado' ? 'Aprovado' : newStatus === 'rejeitado' ? 'Rejeitado' : 'Pendente'}`,
+      });
     };
 
     return (
@@ -291,10 +499,10 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
               <TableHead>Motoboy</TableHead>
               <TableHead>Solicitação</TableHead>
               <TableHead>Valores</TableHead>
-              <TableHead>Status</TableHead>
               <TableHead>Detalhes</TableHead>
               <TableHead>Avisado</TableHead>
               <TableHead>Aprovação Sup.</TableHead>
+              <TableHead>Laudo</TableHead>
               <TableHead>Ações</TableHead>
             </TableRow>
           </TableHeader>
@@ -307,7 +515,7 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{solicitation.fone}</span>
+                    <span className="text-sm">{formatPhoneNumber(solicitation.fone || '')}</span>
                   </div>
                 </TableCell>
                 <TableCell>
@@ -322,54 +530,94 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
                   </div>
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-center gap-2">
-                    {solicitation.solicitacao === 'Combustível' ? (
-                      <Fuel className="h-4 w-4 text-blue-500" />
-                    ) : solicitation.solicitacao === 'Vale Peças' ? (
-                      <Wrench className="h-4 w-4 text-orange-500" />
-                    ) : null}
-                    <Badge variant="outline" className="text-xs">
-                      {solicitation.solicitacao}
-                    </Badge>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="space-y-1">
-                                         <div className="font-medium">
-                       R$ {parseFloat(solicitation.valor || '0').toFixed(2)}
-                     </div>
-                     {solicitation.valorCombustivel && (
-                       <div className="text-xs text-blue-600">
-                         Comb: R$ {parseFloat(solicitation.valorCombustivel.toString() || '0').toFixed(2)}
-                       </div>
-                     )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Select
-                    value={solicitation.aprovacao}
-                    onValueChange={(value) => handleStatusChange(solicitation.id, value)}
-                  >
-                    <SelectTrigger className="w-32">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pendente">Pendente</SelectItem>
-                      <SelectItem value="aprovado">Aprovado</SelectItem>
-                      <SelectItem value="rejeitado">Rejeitado</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </TableCell>
-                <TableCell>
-                  <div className="space-y-1">
-                    <div className="text-xs font-medium">
-                      {solicitation.status}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      {solicitation.solicitacao === 'Combustível' || solicitation.solicitacao === 'Vale combustível' ? (
+                        <Fuel className="h-4 w-4 text-blue-500" />
+                      ) : isPecasSolicitation(solicitation.solicitacao) ? (
+                        <Wrench className="h-4 w-4 text-orange-500" />
+                      ) : null}
+                      <Badge variant="outline" className="text-xs">
+                        {solicitation.solicitacao}
+                      </Badge>
                     </div>
-                    {solicitation.descricaoPecas && (
-                      <div className="text-xs text-muted-foreground max-w-32 truncate" title={solicitation.descricaoPecas}>
-                        {solicitation.descricaoPecas}
+                    {isPecasSolicitation(solicitation.solicitacao) && solicitation.descricaoPecas && (
+                      <div className="text-xs text-muted-foreground">
+                        <div className="flex items-center gap-1">
+                          <span className="font-medium text-orange-600">Peça:</span>
+                          <span>{getShortDescription(solicitation.descricaoPecas)}</span>
+                          {solicitation.descricaoPecas.length > 50 && (
+                            <Dialog>
+                              <DialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-4 w-4 p-0 text-orange-600 hover:text-orange-700"
+                                  onClick={() => setExpandedDescription(solicitation.descricaoPecas || null)}
+                                >
+                                  <Eye className="h-3 w-3" />
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent className="max-w-2xl">
+                                <DialogHeader>
+                                  <DialogTitle className="flex items-center gap-2">
+                                    <Wrench className="h-5 w-5 text-orange-500" />
+                                    Descrição da Peça - {solicitation.nome}
+                                  </DialogTitle>
+                                  <DialogDescription>
+                                    Detalhes completos da solicitação de peça
+                                  </DialogDescription>
+                                </DialogHeader>
+                                <div className="space-y-4">
+                                  <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
+                                    <h4 className="font-medium text-orange-800 mb-2">Descrição da Peça:</h4>
+                                    <p className="text-orange-700 whitespace-pre-wrap">
+                                      {solicitation.descricaoPecas}
+                                    </p>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-4 text-sm">
+                                    <div>
+                                      <span className="font-medium">Motoboy:</span> {solicitation.nome}
+                                    </div>
+                                    <div>
+                                      <span className="font-medium">Placa:</span> {solicitation.placa}
+                                    </div>
+                                    <div>
+                                      <span className="font-medium">Valor:</span> R$ {parseFloat(solicitation.valor || '0').toFixed(2)}
+                                    </div>
+                                    <div>
+                                      <span className="font-medium">Data:</span> {new Date(solicitation.data).toLocaleDateString('pt-BR')}
+                                    </div>
+                                  </div>
+                                </div>
+                              </DialogContent>
+                            </Dialog>
+                          )}
+                        </div>
                       </div>
                     )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="space-y-1">
+                    <div className="font-medium">
+                      R$ {parseFloat(solicitation.valor || '0').toFixed(2)}
+                    </div>
+                    {solicitation.valorCombustivel && (
+                      <div className="text-xs text-blue-600">
+                        Comb: R$ {parseFloat(solicitation.valorCombustivel.toString() || '0').toFixed(2)}
+                      </div>
+                    )}
+                    {solicitation.valorPeca && (
+                      <div className="text-xs text-orange-600">
+                        Peça: R$ {solicitation.valorPeca.toFixed(2)}
+                      </div>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="text-xs font-medium">
+                    {solicitation.status}
                   </div>
                 </TableCell>
                 <TableCell>
@@ -379,6 +627,29 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
                 </TableCell>
                 <TableCell>
                   {getSupApprovalToggle(solicitation.id, solicitation.aprovacaoSup, solicitation)}
+                </TableCell>
+                <TableCell>
+                  {solicitation.pdfLaudo ? (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePDFAction(solicitation)}
+                        className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
+                        title="Visualizar/Download do Laudo"
+                      >
+                        <FileText className="h-4 w-4" />
+                      </Button>
+                      <span className="text-xs text-green-600 font-medium">Disponível</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 bg-gray-100 rounded flex items-center justify-center">
+                        <FileText className="h-4 w-4 text-gray-400" />
+                      </div>
+                      <span className="text-xs text-gray-500">Não gerado</span>
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Button
@@ -422,6 +693,74 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Dialog para dados da peça */}
+      {solicitationForPecas && (
+        <PecasValueDialog
+          open={pecasDialogOpen}
+          onOpenChange={setPecasDialogOpen}
+          onConfirm={handlePecasConfirm}
+          motoboyName={solicitationForPecas.nome}
+          descricaoPecas={solicitationForPecas.descricaoPecas || ''}
+        />
+      )}
+
+      {/* Modal para visualização do PDF */}
+      <Dialog open={pdfModalOpen} onOpenChange={setPdfModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] p-0">
+          <DialogHeader className="p-6 pb-0">
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-blue-500" />
+              Visualização do Laudo - {currentPdfName.replace('.pdf', '')}
+            </DialogTitle>
+            <DialogDescription>
+              Visualize e baixe o laudo PDF
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 p-6 pt-0">
+            {currentPdfUrl && (
+              <div className="space-y-4">
+                {/* Botões de ação */}
+                <div className="flex justify-between items-center">
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleDownloadPDF}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Baixar PDF
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => window.open(currentPdfUrl, '_blank')}
+                    >
+                      <Eye className="h-4 w-4 mr-2" />
+                      Abrir em Nova Aba
+                    </Button>
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => setPdfModalOpen(false)}
+                  >
+                    Fechar
+                  </Button>
+                </div>
+
+                {/* Visualizador de PDF */}
+                <div className="border rounded-lg overflow-hidden">
+                  <iframe
+                    src={currentPdfUrl}
+                    className="w-full h-[600px]"
+                    title="Visualizador de PDF"
+                    style={{ border: 'none' }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

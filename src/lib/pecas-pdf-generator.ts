@@ -1,21 +1,17 @@
 import jsPDF from 'jspdf';
 
-export interface LaudoData {
+export interface PecasLaudoData {
   nome: string;
   telefone: string;
   placa: string;
-  solicitacao: 'Combustivel' | 'Vale Pecas';
-  valorCombustivel?: number;
-  descricaoPecas?: string;
+  matricula: string;
+  descricaoPecas: string;
+  valorPeca: number;
+  loja: string;
   dataCriacao: string;
-  supervisor?: {
-    id: string;
-    codigo: string;
-    nome: string;
-  } | null;
 }
 
-export const generateLaudoPDF = (data: LaudoData): jsPDF => {
+export function generatePecasLaudoPDF(data: PecasLaudoData): jsPDF {
   const doc = new jsPDF();
   
   // Configurações de fonte
@@ -25,7 +21,7 @@ export const generateLaudoPDF = (data: LaudoData): jsPDF => {
   const smallFontSize = 10;
   
   // Cores
-  const primaryColor = [0, 123, 255]; // Azul
+  const primaryColor = [255, 140, 0]; // Laranja
   const darkColor = [51, 51, 51]; // Cinza escuro
   const lightGray = [240, 240, 240];
   
@@ -38,7 +34,7 @@ export const generateLaudoPDF = (data: LaudoData): jsPDF => {
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(titleFontSize);
   doc.setFont('helvetica', 'bold');
-  doc.text('AUTORIZAÇÃO DE COMBUSTÍVEL', 105, 15, { align: 'center' });
+  doc.text('AUTORIZAÇÃO DE PEÇAS', 105, 15, { align: 'center' });
   
   doc.setFontSize(smallFontSize);
   doc.setFont('helvetica', 'normal');
@@ -50,7 +46,7 @@ export const generateLaudoPDF = (data: LaudoData): jsPDF => {
   doc.setTextColor(...darkColor);
   doc.setFontSize(subtitleFontSize);
   doc.setFont('helvetica', 'bold');
-  doc.text('LAUDO DE AUTORIZAÇÃO PARA RETIRADA DE COMBUSTÍVEL', 105, yPosition, { align: 'center' });
+  doc.text('LAUDO DE AUTORIZAÇÃO PARA RETIRADA DE PEÇAS', 105, yPosition, { align: 'center' });
   
   yPosition += 20;
   
@@ -72,6 +68,7 @@ export const generateLaudoPDF = (data: LaudoData): jsPDF => {
   const motoboyInfo = [
     `Nome: ${data.nome}`,
     `Telefone: ${data.telefone}`,
+    `Matrícula: ${data.matricula}`,
     `Placa da Moto: ${data.placa}`,
     `Data da Solicitação: ${new Date(data.dataCriacao).toLocaleDateString('pt-BR')}`
   ];
@@ -83,34 +80,18 @@ export const generateLaudoPDF = (data: LaudoData): jsPDF => {
   
   yPosition += 10;
   
-  // Informações do Supervisor
-  if (data.supervisor) {
-    doc.setFont('helvetica', 'bold');
-    doc.text('SUPERVISOR RESPONSÁVEL:', 20, yPosition);
-    
-    yPosition += 10;
-    
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Nome: ${data.supervisor.nome}`, 25, yPosition);
-    yPosition += 7;
-    doc.text(`Código: ${data.supervisor.codigo}`, 25, yPosition);
-    yPosition += 10;
-  }
-  
-  // Informações do Combustível
+  // Descrição da Peça
   doc.setFont('helvetica', 'bold');
-  doc.text('INFORMAÇÕES DO COMBUSTÍVEL:', 20, yPosition);
+  doc.text('DESCRIÇÃO DA PEÇA:', 20, yPosition);
   
   yPosition += 10;
   
   doc.setFont('helvetica', 'normal');
-  if (data.valorCombustivel) {
-    doc.text(`Valor Solicitado: R$ ${data.valorCombustivel.toFixed(2)}`, 25, yPosition);
-    yPosition += 7;
-  }
-  
-  doc.text(`Tipo de Solicitação: ${data.solicitacao}`, 25, yPosition);
-  yPosition += 7;
+  const descricaoLines = doc.splitTextToSize(data.descricaoPecas, 160);
+  descricaoLines.forEach((line: string) => {
+    doc.text(line, 25, yPosition);
+    yPosition += 6;
+  });
   
   yPosition += 15;
   
@@ -124,15 +105,13 @@ export const generateLaudoPDF = (data: LaudoData): jsPDF => {
   yPosition += 10;
   
   doc.setFont('helvetica', 'normal');
-  if (data.valorCombustivel) {
-    doc.text(`Valor Autorizado: R$ ${data.valorCombustivel.toFixed(2)}`, 25, yPosition);
-    yPosition += 7;
-  }
-  
-  doc.text(`Data de Autorização: ${new Date().toLocaleDateString('pt-BR')}`, 25, yPosition);
+  doc.text(`Valor Autorizado: R$ ${data.valorPeca.toFixed(2)}`, 25, yPosition);
   yPosition += 7;
   
-  doc.text(`Status: APROVADO`, 25, yPosition);
+  doc.text(`Loja Autorizada: ${data.loja}`, 25, yPosition);
+  yPosition += 7;
+  
+  doc.text(`Data de Autorização: ${new Date().toLocaleDateString('pt-BR')}`, 25, yPosition);
   
   yPosition += 20;
   
@@ -144,11 +123,11 @@ export const generateLaudoPDF = (data: LaudoData): jsPDF => {
   
   doc.setFont('helvetica', 'normal');
   const instrucoes = [
-    '1. Este documento autoriza a retirada do combustível solicitado.',
+    '1. Este documento autoriza a retirada da peça descrita acima.',
     '2. O valor máximo autorizado é o especificado neste laudo.',
-    '3. A retirada deve ser feita em postos credenciados.',
-    '4. Apresente este documento no posto para retirada.',
-    '5. Guarde o comprovante de abastecimento para controle.'
+    '3. A retirada deve ser feita na loja indicada.',
+    '4. Apresente este documento na loja para retirada.',
+    '5. Guarde o comprovante de retirada para controle.'
   ];
   
   instrucoes.forEach(instrucao => {
@@ -166,8 +145,7 @@ export const generateLaudoPDF = (data: LaudoData): jsPDF => {
   yPosition += 5;
   
   doc.setFontSize(smallFontSize);
-  const supervisorName = data.supervisor ? data.supervisor.nome : 'Supervisor';
-  doc.text(supervisorName, 55, yPosition, { align: 'center' });
+  doc.text('Supervisor', 55, yPosition, { align: 'center' });
   doc.text('Motoboy', 155, yPosition, { align: 'center' });
   
   // Rodapé
@@ -178,8 +156,4 @@ export const generateLaudoPDF = (data: LaudoData): jsPDF => {
   doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 105, pageHeight - 5, { align: 'center' });
   
   return doc;
-};
-
-export const downloadPDF = (doc: jsPDF, filename: string) => {
-  doc.save(filename);
-};
+}
