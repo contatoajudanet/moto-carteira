@@ -9,13 +9,14 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { AlertCircle, X } from 'lucide-react';
 
 interface RejectionReasonDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (reason: string) => void;
+  onConfirm: (data: { reason: string; supervisorName: string; supervisorCode: string }) => void;
   motoboyName: string;
   solicitationType: string;
 }
@@ -28,17 +29,25 @@ export function RejectionReasonDialog({
   solicitationType
 }: RejectionReasonDialogProps) {
   const [reason, setReason] = useState('');
+  const [supervisorName, setSupervisorName] = useState('');
+  const [supervisorCode, setSupervisorCode] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleConfirm = async () => {
-    if (!reason.trim()) {
+    if (!reason.trim() || !supervisorName.trim() || !supervisorCode.trim()) {
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await onConfirm(reason.trim());
+      await onConfirm({
+        reason: reason.trim(),
+        supervisorName: supervisorName.trim(),
+        supervisorCode: supervisorCode.trim()
+      });
       setReason('');
+      setSupervisorName('');
+      setSupervisorCode('');
       onOpenChange(false);
     } finally {
       setIsSubmitting(false);
@@ -47,6 +56,8 @@ export function RejectionReasonDialog({
 
   const handleCancel = () => {
     setReason('');
+    setSupervisorName('');
+    setSupervisorCode('');
     onOpenChange(false);
   };
 
@@ -64,6 +75,35 @@ export function RejectionReasonDialog({
         </DialogHeader>
         
         <div className="grid gap-4 py-4">
+          {/* Campos do Supervisor */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="supervisorName" className="text-sm font-medium">
+                Nome do Supervisor *
+              </Label>
+              <Input
+                id="supervisorName"
+                placeholder="Ex: Carlos Santos"
+                value={supervisorName}
+                onChange={(e) => setSupervisorName(e.target.value)}
+                maxLength={100}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="supervisorCode" className="text-sm font-medium">
+                Código do Supervisor *
+              </Label>
+              <Input
+                id="supervisorCode"
+                placeholder="Ex: 1234"
+                value={supervisorCode}
+                onChange={(e) => setSupervisorCode(e.target.value)}
+                maxLength={20}
+              />
+            </div>
+          </div>
+
+          {/* Motivo da Rejeição */}
           <div className="grid gap-2">
             <Label htmlFor="reason" className="text-sm font-medium">
               Motivo da Rejeição *
@@ -96,7 +136,7 @@ export function RejectionReasonDialog({
             type="button"
             variant="destructive"
             onClick={handleConfirm}
-            disabled={!reason.trim() || isSubmitting}
+            disabled={!reason.trim() || !supervisorName.trim() || !supervisorCode.trim() || isSubmitting}
             className="bg-red-600 hover:bg-red-700"
           >
             <AlertCircle className="h-4 w-4 mr-2" />

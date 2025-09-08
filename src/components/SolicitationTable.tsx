@@ -231,7 +231,7 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
   };
 
   // Função para lidar com rejeição com motivo
-  const handleRejectionWithReason = async (reason: string) => {
+  const handleRejectionWithReason = async (data: { reason: string; supervisorName: string; supervisorCode: string }) => {
     if (!solicitationForRejection) return;
 
     try {
@@ -241,7 +241,7 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
       let webhookSuccess;
       
       if (isPecas) {
-        // Webhook específico para peças rejeitadas
+        // Webhook específico para peças rejeitadas (sem dados do supervisor)
         webhookSuccess = await sendPecasWebhookNotification(
           solicitationForRejection.nome,
           solicitationForRejection.fone || 'Não informado',
@@ -250,10 +250,10 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
           0,
           '',
           undefined,
-          reason
+          data.reason
         );
       } else {
-        // Webhook normal para combustível
+        // Webhook normal para combustível (com dados do supervisor)
         webhookSuccess = await sendWebhookNotification(
           solicitationForRejection.nome,
           solicitationForRejection.fone || 'Não informado',
@@ -261,18 +261,18 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
           solicitationForRejection.solicitacao,
           parseFloat(solicitationForRejection.valor || '0'),
           undefined,
-          reason,
-          solicitationForRejection.supervisor ? {
-            nome: solicitationForRejection.supervisor.nome,
-            codigo: solicitationForRejection.supervisor.codigo
-          } : undefined
+          data.reason,
+          {
+            nome: data.supervisorName,
+            codigo: data.supervisorCode
+          }
         );
       }
 
       if (webhookSuccess) {
         toast({
           title: "Solicitação rejeitada",
-          description: `Webhook enviado para ${solicitationForRejection.nome} com motivo: ${reason}`,
+          description: `Webhook enviado para ${solicitationForRejection.nome} com motivo: ${data.reason}`,
         });
       } else {
         toast({
