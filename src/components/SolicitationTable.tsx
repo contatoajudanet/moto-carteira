@@ -43,6 +43,7 @@ import { generateLaudoPDF } from '@/lib/pdf-generator';
 import { generatePecasLaudoPDF } from '@/lib/pecas-pdf-generator';
 import { uploadPDFToStorage } from '@/lib/supabase-storage';
 import { PecasValueDialog } from '@/components/PecasValueDialog';
+import { RejectionReasonDialog } from '@/components/RejectionReasonDialog';
 
 interface SolicitationTableProps {
   solicitations: Solicitation[];
@@ -60,6 +61,8 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
   const [pdfModalOpen, setPdfModalOpen] = useState(false);
   const [currentPdfUrl, setCurrentPdfUrl] = useState<string | null>(null);
   const [currentPdfName, setCurrentPdfName] = useState<string>('');
+  const [rejectionDialogOpen, setRejectionDialogOpen] = useState(false);
+  const [solicitationForRejection, setSolicitationForRejection] = useState<Solicitation | null>(null);
 
   // Função para gerar descrição curta das peças
   const getShortDescription = (description: string, maxLength: number = 50) => {
@@ -227,6 +230,77 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
     setPecasDialogOpen(false);
   };
 
+  // Função para lidar com rejeição com motivo
+  const handleRejectionWithReason = async (reason: string) => {
+    if (!solicitationForRejection) return;
+
+    try {
+      // Verificar se é solicitação de peças
+      const isPecas = isPecasSolicitation(solicitationForRejection.solicitacao);
+      
+      let webhookSuccess;
+      
+      if (isPecas) {
+        // Webhook específico para peças rejeitadas
+        webhookSuccess = await sendPecasWebhookNotification(
+          solicitationForRejection.nome,
+          solicitationForRejection.fone || 'Não informado',
+          'rejeitado',
+          solicitationForRejection.descricaoPecas || '',
+          0,
+          '',
+          undefined,
+          reason
+        );
+      } else {
+        // Webhook normal para combustível
+        webhookSuccess = await sendWebhookNotification(
+          solicitationForRejection.nome,
+          solicitationForRejection.fone || 'Não informado',
+          'rejeitado',
+          solicitationForRejection.solicitacao,
+          parseFloat(solicitationForRejection.valor || '0'),
+          undefined,
+          reason,
+          solicitationForRejection.supervisor ? {
+            nome: solicitationForRejection.supervisor.nome,
+            codigo: solicitationForRejection.supervisor.codigo
+          } : undefined
+        );
+      }
+
+      if (webhookSuccess) {
+        toast({
+          title: "Solicitação rejeitada",
+          description: `Webhook enviado para ${solicitationForRejection.nome} com motivo: ${reason}`,
+        });
+      } else {
+        toast({
+          title: "Erro na notificação",
+          description: "Falha ao enviar webhook, mas status foi atualizado",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Erro ao enviar webhook de rejeição:', error);
+      toast({
+        title: "Erro na notificação",
+        description: "Falha ao enviar webhook, mas status foi atualizado",
+        variant: "destructive",
+      });
+    }
+    
+    // Atualizar status após webhook
+    onUpdate(solicitationForRejection.id, { 
+      aprovacaoSup: 'rejeitado',
+      status: getStatusAutomatico('rejeitado')
+    });
+
+    // Limpar estado
+    setSolicitationForRejection(null);
+    setRejectionDialogOpen(false);
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'aprovado':
@@ -346,63 +420,15 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
           }
         }
       } else if (newStatus === 'rejeitado') {
-        // Para rejeitado, enviar webhook imediatamente
-        try {
-          let webhookSuccess;
-          
-          if (isPecasSolicitation(solicitation.solicitacao)) {
-            // Webhook específico para peças rejeitadas
-            webhookSuccess = await sendPecasWebhookNotification(
-              solicitation.nome,
-              solicitation.fone || 'Não informado',
-              newStatus,
-              solicitation.descricaoPecas || '',
-              0,
-              '',
-              undefined
-            );
-          } else {
-            // Webhook normal para combustível
-            webhookSuccess = await sendWebhookNotification(
-              solicitation.nome,
-              solicitation.fone || 'Não informado',
-              newStatus,
-              solicitation.solicitacao,
-              parseFloat(solicitation.valor || '0')
-            );
-          }
-
-          if (webhookSuccess) {
-            toast({
-              title: "Notificação enviada",
-              description: `Webhook disparado para ${solicitation.nome}`,
-            });
-          } else {
-            toast({
-              title: "Erro na notificação",
-              description: "Falha ao enviar webhook, mas status foi atualizado",
-              variant: "destructive",
-            });
-          }
-        } catch (error) {
-          console.error('Erro ao enviar webhook:', error);
-          toast({
-            title: "Erro na notificação",
-            description: "Falha ao enviar webhook, mas status foi atualizado",
-            variant: "destructive",
-          });
-        }
-        
-        // Atualizar status após webhook
-        onUpdate(id, { 
-          aprovacaoSup: newStatus,
-          status: getStatusAutomatico(newStatus)
-        });
+        // Para rejeitado, abrir dialog para solicitar motivo
+        setSolicitationForRejection(solicitation);
+        setRejectionDialogOpen(true);
+        return; // Não continuar com o fluxo normal
       }
 
       toast({
         title: "Aprovação supervisora atualizada",
-        description: `Status alterado para: ${newStatus === 'aprovado' ? 'Aprovado' : newStatus === 'rejeitado' ? 'Rejeitado' : 'Pendente'}`,
+        description: `Status alterado para: ${newStatus === 'aprovado' ? 'Aprovado' : 'Pendente'}`,
       });
     };
 
@@ -702,6 +728,17 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
           onConfirm={handlePecasConfirm}
           motoboyName={solicitationForPecas.nome}
           descricaoPecas={solicitationForPecas.descricaoPecas || ''}
+        />
+      )}
+
+      {/* Dialog para motivo de rejeição */}
+      {solicitationForRejection && (
+        <RejectionReasonDialog
+          open={rejectionDialogOpen}
+          onOpenChange={setRejectionDialogOpen}
+          onConfirm={handleRejectionWithReason}
+          motoboyName={solicitationForRejection.nome}
+          solicitationType={solicitationForRejection.solicitacao}
         />
       )}
 

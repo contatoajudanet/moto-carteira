@@ -1,21 +1,60 @@
 import { WEBHOOK_CONFIG } from '@/config/webhook';
 
+// Função para gerar mensagens padronizadas
+function generateWebhookMessage(
+  nome: string,
+  aprovacaoSup: string,
+  tipoSolicitacao: string,
+  detalhes?: {
+    valorPeca?: number;
+    lojaAutorizada?: string;
+    valorCombustivel?: number;
+    motivoRejeicao?: string;
+    supervisor?: { nome: string; codigo: string };
+  }
+): string {
+  if (aprovacaoSup === 'aprovado') {
+    if (tipoSolicitacao.toLowerCase().includes('peça') || tipoSolicitacao.toLowerCase().includes('pecas')) {
+      return `🔧 AUTORIZADO! Olá ${nome}, sua solicitação de peça foi APROVADA pelo supervisor. Você pode retirar a peça na loja ${detalhes?.lojaAutorizada || 'autorizada'} no valor de R$ ${detalhes?.valorPeca?.toFixed(2) || '0,00'}.`;
+    } else {
+      return `✅ AUTORIZADO: Motoboy ${nome} está autorizado a retirar ${tipoSolicitacao.toLowerCase()}.`;
+    }
+  } else {
+    // Mensagem padronizada para rejeição com motivo
+    const motivo = detalhes?.motivoRejeicao || 'Motivo não informado';
+    
+    // Para combustível, incluir nome e código do supervisor
+    if (tipoSolicitacao.toLowerCase().includes('combustível') || tipoSolicitacao.toLowerCase().includes('combustivel')) {
+      const supervisorInfo = detalhes?.supervisor 
+        ? ` pelo supervisor ${detalhes.supervisor.nome} (Código: ${detalhes.supervisor.codigo})`
+        : ' pelo supervisor';
+      return `❌ SOLICITAÇÃO NEGADA: Olá ${nome}, sua solicitação de ${tipoSolicitacao.toLowerCase()} foi rejeitada${supervisorInfo}. Motivo: ${motivo}`;
+    } else {
+      // Para peças, manter mensagem simples
+      return `❌ SOLICITAÇÃO NEGADA: Olá ${nome}, sua solicitação de ${tipoSolicitacao.toLowerCase()} foi rejeitada pelo supervisor. Motivo: ${motivo}`;
+    }
+  }
+}
+
 export async function sendWebhookNotification(
   nome: string,
   telefone: string,
   aprovacaoSup: string,
   tipoSolicitacao: string,
   valor?: number,
-  pdfUrl?: string // URL do PDF opcional
+  pdfUrl?: string, // URL do PDF opcional
+  motivoRejeicao?: string, // Motivo da rejeição opcional
+  supervisor?: { nome: string; codigo: string } // Dados do supervisor opcional
 ): Promise<boolean> {
   if (!WEBHOOK_CONFIG.enabled) {
     console.log('📤 Webhook desabilitado');
     return false;
   }
 
-  const mensagem = aprovacaoSup === 'aprovado' 
-    ? `✅ AUTORIZADO: Motoboy ${nome} está autorizado a retirar ${tipoSolicitacao.toLowerCase()}.`
-    : `❌ NEGADO: Solicitação de ${nome} para ${tipoSolicitacao.toLowerCase()} foi rejeitada.`;
+  const mensagem = generateWebhookMessage(nome, aprovacaoSup, tipoSolicitacao, {
+    motivoRejeicao,
+    supervisor
+  });
 
   const payload = {
     mensagem,
@@ -62,16 +101,19 @@ export async function sendPecasWebhookNotification(
   descricaoPecas: string,
   valorPeca: number,
   lojaAutorizada: string,
-  pdfUrl?: string
+  pdfUrl?: string,
+  motivoRejeicao?: string // Motivo da rejeição opcional
 ): Promise<boolean> {
   if (!WEBHOOK_CONFIG.enabled) {
     console.log('📤 Webhook desabilitado');
     return false;
   }
 
-  const mensagem = aprovacaoSup === 'aprovado' 
-    ? `🔧 AUTORIZADO! Olá ${nome}, sua solicitação de peça foi APROVADA pelo supervisor. Você pode retirar a peça na loja ${lojaAutorizada} no valor de R$ ${valorPeca.toFixed(2)}.`
-    : `❌ NEGADO! Olá ${nome}, sua solicitação de peça foi REJEITADA pelo supervisor. Entre em contato para mais informações.`;
+  const mensagem = generateWebhookMessage(nome, aprovacaoSup, 'Vale Peças', {
+    valorPeca,
+    lojaAutorizada,
+    motivoRejeicao
+  });
 
   const payload = {
     mensagem,

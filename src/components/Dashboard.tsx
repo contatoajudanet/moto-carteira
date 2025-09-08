@@ -1,30 +1,32 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Truck, Clock, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
+import { Plus, Truck, Clock, CheckCircle, XCircle, RefreshCw, Wifi, WifiOff, Bug } from 'lucide-react';
 import { SolicitationTable } from './SolicitationTable';
 import { NewSolicitationDialog } from './NewSolicitationDialog';
 import { SupervisorSelector } from './SupervisorSelector';
 import { Solicitation, SolicitationStatus } from '@/types/solicitation';
-import { useSupabase } from '@/hooks/use-supabase';
+import { useRealtimeSolicitations } from '@/hooks/use-realtime-solicitations';
 import { useToast } from '@/hooks/use-toast';
+import { diagnoseRealtimeIssues } from '@/utils/test-realtime';
 
 export default function Dashboard() {
-  const [solicitations, setSolicitations] = useState<Solicitation[]>([]);
   const [statusFilter, setStatusFilter] = useState<SolicitationStatus>('todas');
   const [supervisorFilter, setSupervisorFilter] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   
   const { 
+    solicitations,
     loading, 
     error, 
+    isRealtimeConnected,
     fetchSolicitations, 
     createSolicitation, 
     updateSolicitation,
     fetchSolicitationsByStatus,
     fetchSolicitationsBySupervisor,
     deleteSolicitation
-  } = useSupabase();
+  } = useRealtimeSolicitations();
   
   const { toast } = useToast();
 
@@ -39,41 +41,25 @@ export default function Dashboard() {
   }, [statusFilter, supervisorFilter]);
 
   const loadSolicitationsWithFilters = async () => {
-    let data: Solicitation[] = [];
-    
     if (supervisorFilter) {
       // Se há filtro de supervisor, buscar por supervisor
-      data = await fetchSolicitationsBySupervisor(supervisorFilter);
-      
-      // Aplicar filtro de status se não for 'todas'
-      if (statusFilter !== 'todas') {
-        data = data.filter(solicitation => solicitation.aprovacao === statusFilter);
-      }
+      await fetchSolicitationsBySupervisor(supervisorFilter);
     } else if (statusFilter === 'todas') {
       // Se não há filtro de supervisor e status é 'todas', buscar todas
-      data = await fetchSolicitations();
+      await fetchSolicitations();
     } else {
       // Se não há filtro de supervisor mas há filtro de status
-      data = await fetchSolicitationsByStatus(statusFilter);
+      await fetchSolicitationsByStatus(statusFilter);
     }
-    
-    setSolicitations(data);
   };
 
   const loadSolicitations = async () => {
-    const data = await fetchSolicitations();
-    setSolicitations(data);
-  };
-
-  const loadSolicitationsByStatus = async (status: string) => {
-    const data = await fetchSolicitationsByStatus(status);
-    setSolicitations(data);
+    await fetchSolicitations();
   };
 
   const handleNewSolicitation = async (newSolicitation: Omit<Solicitation, 'id' | 'createdAt'>) => {
     const created = await createSolicitation(newSolicitation);
     if (created) {
-      setSolicitations(prev => [created, ...prev]);
       setIsDialogOpen(false);
       toast({
         title: "Sucesso",
@@ -91,7 +77,6 @@ export default function Dashboard() {
   const handleUpdateSolicitation = async (id: string, updates: Partial<Solicitation>) => {
     try {
       await updateSolicitation(id, updates);
-      await loadSolicitations();
       toast({
         title: "Solicitação atualizada",
         description: "Dados salvos com sucesso!",
@@ -109,7 +94,6 @@ export default function Dashboard() {
   const handleDeleteSolicitation = async (id: string) => {
     try {
       await deleteSolicitation(id);
-      await loadSolicitations();
       toast({
         title: "Solicitação excluída",
         description: "Removida com sucesso!",
@@ -126,6 +110,15 @@ export default function Dashboard() {
 
   const handleRefresh = () => {
     loadSolicitationsWithFilters();
+  };
+
+  const handleDiagnoseRealtime = async () => {
+    toast({
+      title: "Diagnosticando Realtime...",
+      description: "Verifique o console do navegador (F12) para detalhes",
+    });
+    
+    await diagnoseRealtimeIssues();
   };
 
   const stats = {
@@ -156,9 +149,24 @@ export default function Dashboard() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-              MotoFleet Manager
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+                MotoFleet Manager
+              </h1>
+              <div className="flex items-center gap-2">
+                {isRealtimeConnected ? (
+                  <div className="flex items-center gap-1 text-green-600">
+                    <Wifi className="w-4 h-4" />
+                    <span className="text-xs font-medium">Tempo Real</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 text-red-600">
+                    <WifiOff className="w-4 h-4" />
+                    <span className="text-xs font-medium">Offline</span>
+                  </div>
+                )}
+              </div>
+            </div>
             <p className="text-muted-foreground mt-1">
               Gerenciamento de combustível e vale peças
             </p>
@@ -171,6 +179,15 @@ export default function Dashboard() {
             >
               <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
               Atualizar
+            </Button>
+            <Button 
+              onClick={handleDiagnoseRealtime}
+              variant="outline"
+              disabled={loading}
+              className="text-orange-600 hover:text-orange-700 border-orange-200 hover:border-orange-300"
+            >
+              <Bug className="w-4 h-4 mr-2" />
+              Testar Realtime
             </Button>
             <Button 
               onClick={() => setIsDialogOpen(true)}
