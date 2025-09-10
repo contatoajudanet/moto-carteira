@@ -34,7 +34,6 @@ export function NewSolicitationDialog({
 }: NewSolicitationDialogProps) {
   const { toast } = useToast();
   const [formData, setFormData] = useState({
-    data: new Date().toISOString().split('T')[0],
     fone: '',
     nome: '',
     matricula: '',
@@ -59,7 +58,7 @@ export function NewSolicitationDialog({
     }
 
     const solicitation: Omit<Solicitation, 'id' | 'createdAt'> = {
-      data: formData.data,
+      data: new Date().toISOString(), // Usar data atual como fallback
       fone: formData.fone,
       nome: formData.nome,
       matricula: formData.matricula,
@@ -78,7 +77,6 @@ export function NewSolicitationDialog({
     
     // Reset form
     setFormData({
-      data: new Date().toISOString().split('T')[0],
       fone: '',
       nome: '',
       matricula: '',
@@ -111,23 +109,13 @@ export function NewSolicitationDialog({
             Nova Solicitação
           </DialogTitle>
           <DialogDescription>
-            Preencha os dados para criar uma nova solicitação de combustível ou vale peças.
+            Preencha os dados para criar uma nova solicitação de combustível ou vale peças. A data e horário serão registrados automaticamente.
           </DialogDescription>
         </DialogHeader>
         
         <form onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="data">Data *</Label>
-                <Input
-                  id="data"
-                  type="date"
-                  value={formData.data}
-                  onChange={(e) => handleInputChange('data', e.target.value)}
-                  required
-                />
-              </div>
               <div className="space-y-2">
                 <Label htmlFor="fone">Telefone</Label>
                 <Input
@@ -137,9 +125,6 @@ export function NewSolicitationDialog({
                   onChange={(e) => handleInputChange('fone', e.target.value)}
                 />
               </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="nome">Nome do Motoboy *</Label>
                 <Input
@@ -150,6 +135,9 @@ export function NewSolicitationDialog({
                   required
                 />
               </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="matricula">Matrícula *</Label>
                 <Input
@@ -160,9 +148,6 @@ export function NewSolicitationDialog({
                   required
                 />
               </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="placa">Placa *</Label>
                 <Input
@@ -173,6 +158,9 @@ export function NewSolicitationDialog({
                   required
                 />
               </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="solicitacao">Tipo de Solicitação *</Label>
                 <Select value={formData.solicitacao} onValueChange={(value) => handleInputChange('solicitacao', value)}>
@@ -187,9 +175,6 @@ export function NewSolicitationDialog({
                   </SelectContent>
                 </Select>
               </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="valor">Valor Total (R$) *</Label>
                 <Input
@@ -203,7 +188,10 @@ export function NewSolicitationDialog({
                   required
                 />
               </div>
-              {isCombustivel && (
+            </div>
+
+            {isCombustivel && (
+              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="valorCombustivel">Valor Combustível (R$)</Label>
                   <Input
@@ -216,8 +204,8 @@ export function NewSolicitationDialog({
                     onChange={(e) => handleInputChange('valorCombustivel', e.target.value)}
                   />
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             {isPecas && (
               <div className="space-y-2">

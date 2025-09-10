@@ -520,7 +520,7 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Data</TableHead>
+              <TableHead>Data e Hora</TableHead>
               <TableHead>Contato</TableHead>
               <TableHead>Motoboy</TableHead>
               <TableHead>Solicitação</TableHead>
@@ -536,7 +536,20 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
             {solicitations.map((solicitation) => (
               <TableRow key={solicitation.id} className="hover:bg-muted/50 transition-colors">
                 <TableCell className="font-medium">
-                  {new Date(solicitation.data).toLocaleDateString('pt-BR')}
+                  <div className="space-y-1">
+                    <div className="text-sm">
+                      {new Date(solicitation.created_at || '').toLocaleDateString('pt-BR', {
+                        timeZone: 'America/Sao_Paulo'
+                      })}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {new Date(solicitation.created_at || '').toLocaleTimeString('pt-BR', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        timeZone: 'America/Sao_Paulo'
+                      })}
+                    </div>
+                  </div>
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
@@ -612,7 +625,7 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
                                       <span className="font-medium">Valor:</span> R$ {parseFloat(solicitation.valor || '0').toFixed(2)}
                                     </div>
                                     <div>
-                                      <span className="font-medium">Data:</span> {new Date(solicitation.data).toLocaleDateString('pt-BR')}
+                                      <span className="font-medium">Data:</span> {new Date(solicitation.created_at || '').toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
                                     </div>
                                   </div>
                                 </div>
