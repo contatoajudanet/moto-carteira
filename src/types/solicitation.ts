@@ -12,7 +12,7 @@ export interface Solicitation {
   avisado: boolean;
   aprovacao: string; // Campo correto do banco
   aprovacaoSup: 'pendente' | 'aprovado' | 'rejeitado';
-  data: string; // Campo correto do banco (não dataCriacao)
+  data: string | Date; // Campo correto do banco (não dataCriacao) - pode ser string ou Date
   created_at?: string;
   updated_at?: string;
   pdfLaudo?: string; // Caminho do PDF no Supabase Storage
@@ -27,6 +27,10 @@ export interface Solicitation {
     codigo: string;
     nome: string;
   } | null; // Dados do supervisor (populado via join)
+  // Campos para imagem de peças
+  url_imagem_pecas?: string | null; // URL da imagem enviada pelo motoboy
+  data_recebimento_imagem?: string | null; // Data/hora quando a imagem foi recebida
+  status_imagem?: 'pendente' | 'recebida' | 'processada'; // Status da imagem
 }
 
 export type SolicitationStatus = 'todas' | 'pendente' | 'aprovado' | 'rejeitado';

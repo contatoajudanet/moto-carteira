@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Solicitation } from '@/types/solicitation';
+import { sendNewSolicitationWebhook, sendValePecasWebhook } from '@/lib/webhook';
 import { useToast } from '@/hooks/use-toast';
 
 export function useRealtimeSolicitations() {
@@ -172,7 +173,33 @@ export function useRealtimeSolicitations() {
       if (error) throw error;
       
       const convertedData = await convertSupabaseData([data]);
-      return convertedData[0] || null;
+      const createdSolicitation = convertedData[0] || null;
+
+      // Disparar webhook automaticamente para nova solicitação
+      if (createdSolicitation) {
+        try {
+          await sendNewSolicitationWebhook({
+            id: createdSolicitation.id,
+            nome: createdSolicitation.nome,
+            fone: createdSolicitation.fone,
+            matricula: createdSolicitation.matricula,
+            placa: createdSolicitation.placa,
+            solicitacao: createdSolicitation.solicitacao,
+            valor: createdSolicitation.valor,
+            valorCombustivel: createdSolicitation.valorCombustivel,
+            descricaoPecas: createdSolicitation.descricaoPecas,
+            status: createdSolicitation.status,
+            aprovacaoSup: createdSolicitation.aprovacaoSup,
+            data: createdSolicitation.data,
+            supervisor_codigo: data.supervisor_codigo || null,
+          });
+        } catch (webhookError) {
+          console.error('Erro ao enviar webhook de nova solicitação:', webhookError);
+          // Não falhar a criação da solicitação se o webhook falhar
+        }
+      }
+
+      return createdSolicitation;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao criar solicitação';
       setError(errorMessage);
@@ -309,6 +336,50 @@ export function useRealtimeSolicitations() {
 
                 // Mostrar notificação baseada no tipo de evento
                 if (payload.eventType === 'INSERT') {
+                  // Disparar webhook APENAS para solicitações de Vale Peças
+                  if (payload.new) {
+                    try {
+                      const newSolicitation = payload.new;
+                      console.log('🆕 Nova solicitação detectada via realtime:', newSolicitation);
+                      
+                      // Verificar se é uma solicitação de Vale Peças
+                      const isValePecas = newSolicitation.solicitacao && 
+                        (newSolicitation.solicitacao.toLowerCase().includes('peças') || 
+                         newSolicitation.solicitacao.toLowerCase().includes('pecas') ||
+                         newSolicitation.solicitacao.toLowerCase().includes('vale peças') ||
+                         newSolicitation.solicitacao.toLowerCase().includes('vale pecas'));
+                      
+                      if (isValePecas) {
+                        console.log('🔧 Solicitação de Vale Peças detectada - disparando webhook');
+                        
+                        // Converter dados do Supabase para formato do webhook
+                        const webhookData = {
+                          id: newSolicitation.id,
+                          nome: newSolicitation.nome,
+                          fone: newSolicitation.fone,
+                          matricula: newSolicitation.matricula,
+                          placa: newSolicitation.placa,
+                          solicitacao: newSolicitation.solicitacao,
+                          valor: newSolicitation.valor,
+                          valorCombustivel: newSolicitation.valor_combustivel,
+                          descricaoPecas: newSolicitation.descricao_pecas,
+                          status: newSolicitation.status,
+                          aprovacaoSup: newSolicitation.aprovacao_sup,
+                          data: newSolicitation.data,
+                          supervisor_codigo: newSolicitation.supervisor_codigo,
+                        };
+                        
+                        // Disparar webhook específico para Vale Peças
+                        await sendValePecasWebhook(webhookData);
+                        console.log('✅ Webhook de Vale Peças disparado via realtime');
+                      } else {
+                        console.log('ℹ️ Solicitação não é de Vale Peças - webhook não será disparado');
+                      }
+                    } catch (webhookError) {
+                      console.error('❌ Erro ao disparar webhook via realtime:', webhookError);
+                    }
+                  }
+                  
                   toast({
                     title: "Nova solicitação recebida! 🚀",
                     description: "Uma nova solicitação foi adicionada ao sistema",

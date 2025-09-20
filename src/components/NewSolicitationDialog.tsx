@@ -58,7 +58,7 @@ export function NewSolicitationDialog({
     }
 
     const solicitation: Omit<Solicitation, 'id' | 'createdAt'> = {
-      data: new Date().toISOString(), // Usar data atual como fallback
+      data: new Date(), // Usar data atual como Date object
       fone: formData.fone,
       nome: formData.nome,
       matricula: formData.matricula,

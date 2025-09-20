@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Solicitation } from '@/types/solicitation';
+import { sendNewSolicitationWebhook } from '@/lib/webhook';
 
 export function useSupabase() {
   const [loading, setLoading] = useState(false);
@@ -103,7 +104,7 @@ export function useSupabase() {
 
       if (error) throw error;
       
-      return {
+      const createdSolicitation = {
         id: data.id,
         data: data.data,
         fone: data.fone || '',
@@ -124,6 +125,30 @@ export function useSupabase() {
         descricaoCompletaPecas: data.descricao_completa_pecas || undefined,
         created_at: data.created_at,
       };
+
+      // Disparar webhook automaticamente para nova solicitação
+      try {
+        await sendNewSolicitationWebhook({
+          id: createdSolicitation.id,
+          nome: createdSolicitation.nome,
+          fone: createdSolicitation.fone,
+          matricula: createdSolicitation.matricula,
+          placa: createdSolicitation.placa,
+          solicitacao: createdSolicitation.solicitacao,
+          valor: createdSolicitation.valor,
+          valorCombustivel: createdSolicitation.valorCombustivel,
+          descricaoPecas: createdSolicitation.descricaoPecas,
+          status: createdSolicitation.status,
+          aprovacaoSup: createdSolicitation.aprovacaoSup,
+          data: createdSolicitation.data,
+          supervisor_codigo: data.supervisor_codigo || null,
+        });
+      } catch (webhookError) {
+        console.error('Erro ao enviar webhook de nova solicitação:', webhookError);
+        // Não falhar a criação da solicitação se o webhook falhar
+      }
+      
+      return createdSolicitation;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao criar solicitação';
       setError(errorMessage);
