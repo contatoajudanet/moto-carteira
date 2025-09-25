@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Solicitation } from '@/types/solicitation';
-import { sendNewSolicitationWebhook } from '@/lib/webhook';
+import { sendNewSolicitationWebhook, sendApprovalWebhook } from '@/lib/webhook-new';
 
 export function useSupabase() {
   const [loading, setLoading] = useState(false);
@@ -212,46 +212,95 @@ export function useSupabase() {
 
   // Deletar solicitação
   const deleteSolicitation = async (id: string): Promise<boolean> => {
+    console.log('🗑️ [DELETE-SUPABASE] Iniciando exclusão da solicitação:', id);
     setLoading(true);
     setError(null);
     
     try {
-      // Primeiro, buscar a solicitação para obter a URL do PDF
-      const { data: solicitation, error: fetchError } = await supabase
-        .from('solicitacoes_motoboy')
-        .select('pdf_laudo')
-        .eq('id', id)
-        .single();
+      // Primeiro, buscar a solicitação para obter a URL do PDF (se a coluna existir)
+      let pdfUrl = null;
+      console.log('🔍 [DELETE-SUPABASE] Buscando dados da solicitação para exclusão...');
+      
+      try {
+        const { data: solicitation, error: fetchError } = await supabase
+          .from('solicitacoes_motoboy')
+          .select('pdf_laudo, nome, matricula')
+          .eq('id', id)
+          .single();
 
-      if (fetchError) {
-        console.error('Erro ao buscar solicitação para deletar:', fetchError);
+        console.log('📋 [DELETE-SUPABASE] Dados da solicitação encontrada:', {
+          id,
+          nome: solicitation?.nome,
+          matricula: solicitation?.matricula,
+          pdf_laudo: solicitation?.pdf_laudo,
+          fetchError
+        });
+
+        if (!fetchError && solicitation?.pdf_laudo) {
+          pdfUrl = solicitation.pdf_laudo;
+          console.log('📄 [DELETE-SUPABASE] PDF encontrado, será deletado do storage:', pdfUrl);
+        } else {
+          console.log('📄 [DELETE-SUPABASE] Nenhum PDF encontrado ou erro na busca');
+        }
+      } catch (fetchError) {
+        console.log('⚠️ [DELETE-SUPABASE] Erro ao buscar dados da solicitação:', fetchError);
+        // Continua a operação mesmo se não conseguir buscar o PDF
       }
 
       // Deletar a solicitação do banco
-      const { error } = await supabase
+      console.log('🗑️ [DELETE-SUPABASE] Executando DELETE no banco de dados...');
+      const { data: deleteData, error } = await supabase
         .from('solicitacoes_motoboy')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .select();
 
-      if (error) throw error;
+      console.log('🗑️ [DELETE-SUPABASE] Resultado do DELETE:', {
+        deleteData,
+        error,
+        rowsAffected: deleteData?.length || 0
+      });
+
+      if (error) {
+        console.error('❌ [DELETE-SUPABASE] Erro ao deletar do banco:', error);
+        throw error;
+      }
+
+      if (!deleteData || deleteData.length === 0) {
+        console.warn('⚠️ [DELETE-SUPABASE] Nenhuma linha foi afetada pelo DELETE');
+        throw new Error('Nenhuma solicitação foi encontrada para exclusão');
+      }
+
+      console.log('✅ [DELETE-SUPABASE] Solicitação deletada do banco com sucesso');
 
       // Se existe PDF, deletar do storage
-      if (solicitation?.pdf_laudo) {
+      if (pdfUrl) {
+        console.log('🗂️ [DELETE-SUPABASE] Deletando PDF do storage...');
         try {
           const { deletePDFFromStorage } = await import('@/lib/supabase-storage');
-          await deletePDFFromStorage(solicitation.pdf_laudo);
+          const storageResult = await deletePDFFromStorage(pdfUrl);
+          console.log('🗂️ [DELETE-SUPABASE] Resultado da exclusão do storage:', storageResult);
         } catch (storageError) {
-          console.error('Erro ao deletar PDF do storage:', storageError);
+          console.error('❌ [DELETE-SUPABASE] Erro ao deletar PDF do storage:', storageError);
           // Não falha a operação se não conseguir deletar o PDF
         }
+      } else {
+        console.log('🗂️ [DELETE-SUPABASE] Nenhum PDF para deletar do storage');
       }
-      
+
+      console.log('✅ [DELETE-SUPABASE] Exclusão concluída com sucesso');
       return true;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao deletar solicitação';
+      console.error('❌ [DELETE-SUPABASE] Erro na exclusão:', {
+        error: err,
+        message: errorMessage,
+        id
+      });
       setError(errorMessage);
       return false;
     } finally {
+      console.log('🏁 [DELETE-SUPABASE] Finalizando processo de exclusão');
       setLoading(false);
     }
   };

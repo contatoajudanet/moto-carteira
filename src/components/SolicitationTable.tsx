@@ -38,7 +38,8 @@ import {
 import { Solicitation } from '@/types/solicitation';
 import { CheckCircle, Clock, XCircle, Phone, User, Truck, Fuel, Wrench, AlertCircle, Trash2, Eye, ChevronDown, Download, FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { sendWebhookNotification, sendPecasWebhookNotification } from '@/lib/webhook';
+import { sendApprovalWebhook, sendPecasImageWebhook } from '@/lib/webhook-new';
+import { supabase } from '@/lib/supabase';
 import { generateLaudoPDF } from '@/lib/pdf-generator';
 import { generatePecasLaudoPDF } from '@/lib/pecas-pdf-generator';
 import { uploadPDFToStorage } from '@/lib/supabase-storage';
@@ -187,13 +188,8 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
         });
         
         // Enviar webhook específico para peças
-        const webhookSuccess = await sendPecasWebhookNotification(
-          solicitationForPecas.nome,
-          solicitationForPecas.fone || 'Não informado',
-          'aprovado',
-          data.descricaoCompleta,
-          data.valorPeca,
-          data.loja,
+        const webhookSuccess = await sendPecasImageWebhook(
+          solicitationForPecas,
           pdfUrl
         );
 
@@ -242,30 +238,17 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
       
       if (isPecas) {
         // Webhook específico para peças rejeitadas (sem dados do supervisor)
-        webhookSuccess = await sendPecasWebhookNotification(
-          solicitationForRejection.nome,
-          solicitationForRejection.fone || 'Não informado',
+        webhookSuccess = await sendApprovalWebhook(
+          solicitationForRejection,
           'rejeitado',
-          solicitationForRejection.descricaoPecas || '',
-          0,
-          '',
-          undefined,
           data.reason
         );
       } else {
         // Webhook normal para combustível (com dados do supervisor)
-        webhookSuccess = await sendWebhookNotification(
-          solicitationForRejection.nome,
-          solicitationForRejection.fone || 'Não informado',
+        webhookSuccess = await sendApprovalWebhook(
+          solicitationForRejection,
           'rejeitado',
-          solicitationForRejection.solicitacao,
-          parseFloat(solicitationForRejection.valor || '0'),
-          undefined,
-          data.reason,
-          {
-            nome: data.supervisorName,
-            codigo: data.supervisorCode
-          }
+          data.reason
         );
       }
 
@@ -382,13 +365,13 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
               });
               
               // Enviar webhook com URL do PDF
-              const webhookSuccess = await sendWebhookNotification(
-                solicitation.nome,
-                solicitation.fone || 'Não informado',
-                newStatus,
-                solicitation.solicitacao,
-                parseFloat(solicitation.valor || '0'),
-                pdfUrl // Incluir URL do PDF no webhook
+              const solicitationWithPDF = {
+                ...solicitation,
+                pdfLaudo: pdfUrl
+              };
+              const webhookSuccess = await sendApprovalWebhook(
+                solicitationWithPDF,
+                newStatus
               );
 
               if (webhookSuccess) {
@@ -423,6 +406,58 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
         // Para rejeitado, abrir dialog para solicitar motivo
         setSolicitationForRejection(solicitation);
         setRejectionDialogOpen(true);
+        return; // Não continuar com o fluxo normal
+      } else if (newStatus === 'pendente') {
+        // Para pendente, deletar PDF se existir e atualizar status
+        try {
+          let pdfUrl = null;
+          
+          // Buscar PDF atual se existir
+          try {
+            const { data: currentSolicitation, error: fetchError } = await supabase
+              .from('solicitacoes_motoboy')
+              .select('pdf_laudo')
+              .eq('id', solicitation.id)
+              .single();
+
+            if (!fetchError && currentSolicitation?.pdf_laudo) {
+              pdfUrl = currentSolicitation.pdf_laudo;
+              console.log('🗑️ [PENDENTE] PDF encontrado, será deletado:', pdfUrl);
+            }
+          } catch (fetchError) {
+            console.log('⚠️ [PENDENTE] Erro ao buscar PDF:', fetchError);
+          }
+
+          // Atualizar status para pendente
+          onUpdate(solicitation.id, {
+            aprovacaoSup: 'pendente',
+            status: 'Fase de aprovação',
+            pdfLaudo: null // Limpar URL do PDF
+          });
+
+          // Deletar PDF do storage se existir
+          if (pdfUrl) {
+            try {
+              const { deletePDFFromStorage } = await import('@/lib/supabase-storage');
+              const storageResult = await deletePDFFromStorage(pdfUrl);
+              console.log('🗂️ [PENDENTE] PDF deletado do storage:', storageResult);
+            } catch (storageError) {
+              console.error('❌ [PENDENTE] Erro ao deletar PDF do storage:', storageError);
+            }
+          }
+
+          toast({
+            title: "Status alterado para pendente",
+            description: "Solicitação voltou para fase de aprovação. PDF removido se existia.",
+          });
+        } catch (error) {
+          console.error('Erro ao alterar para pendente:', error);
+          toast({
+            title: "Erro",
+            description: "Falha ao alterar status para pendente",
+            variant: "destructive",
+          });
+        }
         return; // Não continuar com o fluxo normal
       }
 
@@ -489,16 +524,33 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
     setDeleteDialogOpen(true);
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (solicitationToDelete) {
-      onDelete(solicitationToDelete.id);
-      setDeleteDialogOpen(false);
-      setSolicitationToDelete(null);
-      
-      toast({
-        title: "Solicitação excluída",
-        description: `Solicitação de ${solicitationToDelete.nome} foi removida com sucesso.`,
+      console.log('🗑️ [TABLE] Iniciando exclusão via tabela:', {
+        id: solicitationToDelete.id,
+        nome: solicitationToDelete.nome,
+        matricula: solicitationToDelete.matricula
       });
+      
+      try {
+        await onDelete(solicitationToDelete.id);
+        console.log('✅ [TABLE] Exclusão via tabela concluída com sucesso');
+        
+        setDeleteDialogOpen(false);
+        setSolicitationToDelete(null);
+        
+        toast({
+          title: "Solicitação excluída",
+          description: `Solicitação de ${solicitationToDelete.nome} foi removida com sucesso.`,
+        });
+      } catch (error) {
+        console.error('❌ [TABLE] Erro na exclusão via tabela:', error);
+        toast({
+          title: "Erro ao excluir",
+          description: "Não foi possível excluir a solicitação. Tente novamente.",
+          variant: "destructive"
+        });
+      }
     }
   };
 

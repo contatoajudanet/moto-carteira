@@ -1,19 +1,21 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Truck, Clock, CheckCircle, XCircle, RefreshCw, Wifi, WifiOff, Bug } from 'lucide-react';
+import { Plus, Truck, Clock, CheckCircle, XCircle, RefreshCw, Wifi, WifiOff, Settings } from 'lucide-react';
 import { SolicitationTable } from './SolicitationTable';
 import { NewSolicitationDialog } from './NewSolicitationDialog';
 import { SupervisorSelector } from './SupervisorSelector';
+import { WebhookConfigPanel } from './WebhookConfigPanel';
 import { Solicitation, SolicitationStatus } from '@/types/solicitation';
 import { useRealtimeSolicitations } from '@/hooks/use-realtime-solicitations';
 import { useToast } from '@/hooks/use-toast';
-import { diagnoseRealtimeIssues } from '@/utils/test-realtime';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function Dashboard() {
   const [statusFilter, setStatusFilter] = useState<SolicitationStatus>('todas');
   const [supervisorFilter, setSupervisorFilter] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'solicitations' | 'webhooks'>('solicitations');
   
   const { 
     solicitations,
@@ -92,14 +94,21 @@ export default function Dashboard() {
   };
 
   const handleDeleteSolicitation = async (id: string) => {
+    console.log('🗑️ [DASHBOARD] Iniciando exclusão via Dashboard:', id);
     try {
-      await deleteSolicitation(id);
-      toast({
-        title: "Solicitação excluída",
-        description: "Removida com sucesso!",
-      });
+      const result = await deleteSolicitation(id);
+      console.log('✅ [DASHBOARD] Resultado da exclusão:', result);
+      
+      if (result) {
+        toast({
+          title: "Solicitação excluída",
+          description: "Removida com sucesso!",
+        });
+      } else {
+        throw new Error('Falha na exclusão - retorno false');
+      }
     } catch (error) {
-      console.error('Erro ao excluir:', error);
+      console.error('❌ [DASHBOARD] Erro ao excluir:', error);
       toast({
         title: "Erro ao excluir",
         description: "Falha ao remover a solicitação",
@@ -112,14 +121,6 @@ export default function Dashboard() {
     loadSolicitationsWithFilters();
   };
 
-  const handleDiagnoseRealtime = async () => {
-    toast({
-      title: "Diagnosticando Realtime...",
-      description: "Verifique o console do navegador (F12) para detalhes",
-    });
-    
-    await diagnoseRealtimeIssues();
-  };
 
   const stats = {
     total: solicitations.length,
@@ -179,15 +180,6 @@ export default function Dashboard() {
             >
               <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
               Atualizar
-            </Button>
-            <Button 
-              onClick={handleDiagnoseRealtime}
-              variant="outline"
-              disabled={loading}
-              className="text-orange-600 hover:text-orange-700 border-orange-200 hover:border-orange-300"
-            >
-              <Bug className="w-4 h-4 mr-2" />
-              Testar Realtime
             </Button>
             <Button 
               onClick={() => setIsDialogOpen(true)}
@@ -260,47 +252,67 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* Table */}
-        <Card className="shadow-card">
-          <CardHeader>
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
-              <div>
-                <CardTitle>Solicitações</CardTitle>
-                <CardDescription>
-                  Gerencie todas as solicitações de combustível e vale peças
-                </CardDescription>
-              </div>
-              <div className="flex gap-2 mt-4 sm:mt-0">
-                {(['todas', 'pendente', 'aprovado', 'rejeitado'] as SolicitationStatus[]).map((status) => (
-                  <Button
-                    key={status}
-                    variant={statusFilter === status ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setStatusFilter(status)}
-                    className="capitalize"
-                    disabled={loading}
-                  >
-                    {status}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="text-center py-12">
-                <RefreshCw className="mx-auto h-8 w-8 text-muted-foreground animate-spin mb-4" />
-                <p className="text-muted-foreground">Carregando solicitações...</p>
-              </div>
-            ) : (
-              <SolicitationTable 
-                solicitations={solicitations}
-                onUpdate={handleUpdateSolicitation}
-                onDelete={handleDeleteSolicitation}
-              />
-            )}
-          </CardContent>
-        </Card>
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={(value: any) => setActiveTab(value)} className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="solicitations" className="flex items-center gap-2">
+              <Truck className="w-4 h-4" />
+              Solicitações
+            </TabsTrigger>
+            <TabsTrigger value="webhooks" className="flex items-center gap-2">
+              <Settings className="w-4 h-4" />
+              Webhooks
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="solicitations" className="space-y-6">
+            {/* Table */}
+            <Card className="shadow-card">
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
+                  <div>
+                    <CardTitle>Solicitações</CardTitle>
+                    <CardDescription>
+                      Gerencie todas as solicitações de combustível e vale peças
+                    </CardDescription>
+                  </div>
+                  <div className="flex gap-2 mt-4 sm:mt-0">
+                    {(['todas', 'pendente', 'aprovado', 'rejeitado'] as SolicitationStatus[]).map((status) => (
+                      <Button
+                        key={status}
+                        variant={statusFilter === status ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setStatusFilter(status)}
+                        className="capitalize"
+                        disabled={loading}
+                      >
+                        {status}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="text-center py-12">
+                    <RefreshCw className="mx-auto h-8 w-8 text-muted-foreground animate-spin mb-4" />
+                    <p className="text-muted-foreground">Carregando solicitações...</p>
+                  </div>
+                ) : (
+                  <SolicitationTable 
+                    solicitations={solicitations}
+                    onUpdate={handleUpdateSolicitation}
+                    onDelete={handleDeleteSolicitation}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="webhooks" className="space-y-6">
+            <WebhookConfigPanel />
+          </TabsContent>
+        </Tabs>
 
         {/* New Solicitation Dialog */}
         <NewSolicitationDialog
