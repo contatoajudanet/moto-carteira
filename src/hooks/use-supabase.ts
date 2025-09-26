@@ -139,6 +139,8 @@ export function useSupabase() {
           valorCombustivel: createdSolicitation.valorCombustivel,
           descricaoPecas: createdSolicitation.descricaoPecas,
           status: createdSolicitation.status,
+          avisado: createdSolicitation.avisado,
+          aprovacao: createdSolicitation.aprovacao,
           aprovacaoSup: createdSolicitation.aprovacaoSup,
           data: createdSolicitation.data,
           supervisor_codigo: data.supervisor_codigo || null,

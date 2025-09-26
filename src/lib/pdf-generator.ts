@@ -25,14 +25,14 @@ export const generateLaudoPDF = (data: LaudoData): jsPDF => {
   const smallFontSize = 10;
   
   // Cores
-  const primaryColor = [0, 123, 255]; // Azul
-  const darkColor = [51, 51, 51]; // Cinza escuro
-  const lightGray = [240, 240, 240];
+  const primaryColor = { r: 0, g: 123, b: 255 }; // Azul
+  const darkColor = { r: 51, g: 51, b: 51 }; // Cinza escuro
+  const lightGray = { r: 240, g: 240, b: 240 };
   
   let yPosition = 20;
   
   // Cabeçalho
-  doc.setFillColor(...primaryColor);
+  doc.setFillColor(primaryColor.r, primaryColor.g, primaryColor.b);
   doc.rect(0, 0, 210, 30, 'F');
   
   doc.setTextColor(255, 255, 255);
@@ -47,7 +47,7 @@ export const generateLaudoPDF = (data: LaudoData): jsPDF => {
   yPosition = 45;
   
   // Título do documento
-  doc.setTextColor(...darkColor);
+  doc.setTextColor(darkColor.r, darkColor.g, darkColor.b);
   doc.setFontSize(subtitleFontSize);
   doc.setFont('helvetica', 'bold');
   doc.text('LAUDO DE AUTORIZAÇÃO PARA RETIRADA DE COMBUSTÍVEL', 105, yPosition, { align: 'center' });
@@ -55,7 +55,7 @@ export const generateLaudoPDF = (data: LaudoData): jsPDF => {
   yPosition += 20;
   
   // Linha separadora
-  doc.setDrawColor(...primaryColor);
+  doc.setDrawColor(primaryColor.r, primaryColor.g, primaryColor.b);
   doc.setLineWidth(0.5);
   doc.line(20, yPosition, 190, yPosition);
   
@@ -115,7 +115,7 @@ export const generateLaudoPDF = (data: LaudoData): jsPDF => {
   yPosition += 15;
   
   // Informações de Autorização
-  doc.setFillColor(...lightGray);
+  doc.setFillColor(lightGray.r, lightGray.g, lightGray.b);
   doc.rect(20, yPosition - 5, 170, 40, 'F');
   
   doc.setFont('helvetica', 'bold');
@@ -159,7 +159,7 @@ export const generateLaudoPDF = (data: LaudoData): jsPDF => {
   yPosition += 15;
   
   // Assinaturas
-  doc.setDrawColor(...primaryColor);
+  doc.setDrawColor(primaryColor.r, primaryColor.g, primaryColor.b);
   doc.line(20, yPosition, 90, yPosition);
   doc.line(120, yPosition, 190, yPosition);
   
