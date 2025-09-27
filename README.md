@@ -13,6 +13,7 @@ Sistema de gerenciamento de solicitações de combustível e vale peças para mo
 - ✅ **Webhook automático** para notificações de aprovação/rejeição
 - ✅ Integração completa com Supabase
 - ✅ Interface responsiva e moderna
+teste de commit
 
 ## 🔔 **Sistema de Notificações Automáticas**
 
