@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -36,13 +36,13 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Solicitation } from '@/types/solicitation';
-import { CheckCircle, Clock, XCircle, Phone, User, Truck, Fuel, Wrench, AlertCircle, Trash2, Eye, ChevronDown, Download, FileText } from 'lucide-react';
+import { CheckCircle, Clock, XCircle, Phone, User, Truck, Fuel, Wrench, AlertCircle, Trash2, Eye, ChevronDown, Download, FileText, ExternalLink, Copy, AlertTriangle, Search, MessageSquare } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { sendApprovalWebhook, sendPecasImageWebhook } from '@/lib/webhook-new';
+import { sendApprovalWebhook, sendPecasApprovalWebhook } from '@/lib/webhook-new';
 import { supabase } from '@/lib/supabase';
 import { generateLaudoPDF } from '@/lib/pdf-generator';
 import { generatePecasLaudoPDF } from '@/lib/pecas-pdf-generator';
-import { uploadPDFToStorage } from '@/lib/supabase-storage';
+import { uploadPDFToStorage, checkPecasImageExists } from '@/lib/supabase-storage';
 import { PecasValueDialog } from '@/components/PecasValueDialog';
 import { RejectionReasonDialog } from '@/components/RejectionReasonDialog';
 
@@ -64,6 +64,175 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
   const [currentPdfName, setCurrentPdfName] = useState<string>('');
   const [rejectionDialogOpen, setRejectionDialogOpen] = useState(false);
   const [solicitationForRejection, setSolicitationForRejection] = useState<Solicitation | null>(null);
+  // Estado para controlar URLs das imagens de peças
+  const [pecasImageUrls, setPecasImageUrls] = useState<Record<string, string>>({});
+  // Cache para evitar verificações repetidas
+  const [checkedSolicitations, setCheckedSolicitations] = useState<Set<string>>(new Set());
+  // Estado para modal de imagem de peças
+  const [imageModalOpen, setImageModalOpen] = useState(false);
+  const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
+  const [currentImageSolicitation, setCurrentImageSolicitation] = useState<Solicitation | null>(null);
+  
+  // Estado para modal de confirmação de solicitação de imagem
+  const [imageRequestModalOpen, setImageRequestModalOpen] = useState(false);
+  const [solicitationForImageRequest, setSolicitationForImageRequest] = useState<Solicitation | null>(null);
+
+  // Função MANUAL para verificar imagem de uma solicitação específica
+  const checkSinglePecasImage = async (solicitationId: string) => {
+    const solicitation = solicitations.find(s => s.id === solicitationId);
+    if (!solicitation || !isPecasSolicitation(solicitation.solicitacao)) {
+      return;
+    }
+
+    // Se já tem URL salva, usar ela
+    if (solicitation.url_imagem_pecas) {
+      setPecasImageUrls(prev => ({
+        ...prev,
+        [solicitationId]: solicitation.url_imagem_pecas!
+      }));
+      console.log('✅ URL da imagem já existe no banco:', solicitation.url_imagem_pecas);
+      return;
+    }
+
+    // Verificar se existe imagem no bucket
+    console.log('🔍 Verificando imagem para solicitação:', solicitationId);
+    const imageUrl = await checkPecasImageExists(solicitationId);
+    if (imageUrl) {
+      setPecasImageUrls(prev => ({
+        ...prev,
+        [solicitationId]: imageUrl
+      }));
+      console.log('🔄 Nova imagem encontrada, atualizando banco:', imageUrl);
+      await updateSolicitationImageUrl(solicitationId, imageUrl);
+      
+      // Abrir o modal automaticamente após encontrar a imagem
+      setTimeout(() => {
+        openImageModal(imageUrl, solicitation);
+      }, 500); // Pequeno delay para garantir que tudo foi atualizado
+      
+      toast({
+        title: "Imagem de peça encontrada!",
+        description: "A imagem foi salva e será exibida no modal.",
+      });
+    } else {
+      toast({
+        title: "Nenhuma imagem encontrada",
+        description: "Não há imagem no bucket para esta solicitação.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Função para abrir modal de imagem
+  const openImageModal = (imageUrl: string, solicitation: Solicitation) => {
+    setCurrentImageUrl(imageUrl);
+    setCurrentImageSolicitation(solicitation);
+    setImageModalOpen(true);
+  };
+
+  // Função para confirmar e enviar solicitação de imagem
+  const handleConfirmImageRequest = async () => {
+    if (!solicitationForImageRequest) return;
+    
+    try {
+      // Usar a função específica de webhook para solicitação de imagem
+      const { sendImageRequestWebhook: sendWebhook } = await import('@/lib/webhook-new');
+      
+      const success = await sendWebhook(solicitationForImageRequest);
+      
+      if (success) {
+        toast({
+          title: "📸 Solicitação de imagem enviada!",
+          description: `Mensagem enviada para ${solicitationForImageRequest.nome} solicitando a foto da peça.`,
+        });
+        
+        // Atualizar status da solicitação para indicar que foi solicitada imagem
+        onUpdate(solicitationForImageRequest.id, {
+          status: 'Aguardando imagem da peça',
+          status_imagem: 'pendente' as any
+        });
+      } else {
+        toast({
+          title: "Erro ao enviar solicitação",
+          description: "Falha ao enviar mensagem solicitando imagem.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Erro ao enviar solicitação de imagem:', error);
+      toast({
+        title: "Erro ao enviar solicitação",
+        description: "Erro interno ao solicitar imagem.",
+        variant: "destructive",
+      });
+    } finally {
+      // Fechar modal
+      setImageRequestModalOpen(false);
+      setSolicitationForImageRequest(null);
+    }
+  };
+
+  // Função para cancelar solicitação de imagem
+  const handleCancelImageRequest = () => {
+    setImageRequestModalOpen(false);
+    setSolicitationForImageRequest(null);
+  };
+
+  // Função para atualizar URL da imagem no banco
+  const updateSolicitationImageUrl = async (solicitacaoId: string, imageUrl: string) => {
+    try {
+      const { error } = await supabase
+        .from('solicitacoes_motoboy')
+        .update({ 
+          url_imagem_pecas: imageUrl,
+          data_recebimento_imagem: new Date().toISOString(),
+          status_imagem: 'recebida'
+        })
+        .eq('id', solicitacaoId);
+
+      if (error) {
+        console.error('Erro ao atualizar URL da imagem:', error);
+      } else {
+        console.log('✅ URL da imagem atualizada no banco:', imageUrl);
+        // Atualizar a solicitação localmente
+        onUpdate(solicitacaoId, { 
+          url_imagem_pecas: imageUrl,
+          data_recebimento_imagem: new Date().toISOString(),
+          status_imagem: 'recebida' as any
+        });
+      }
+    } catch (error) {
+      console.error('Erro ao atualizar URL da imagem:', error);
+    }
+  };
+
+  // DESABILITADO TEMPORARIAMENTE para evitar loop
+  // Verificar imagens quando as solicitações mudarem (com debounce)
+  // useEffect(() => {
+  //   const timeoutId = setTimeout(() => {
+  //     checkPecasImages();
+  //   }, 500); // Aguardar 500ms para evitar múltiplas execuções
+
+  //   return () => clearTimeout(timeoutId);
+  // }, [solicitations]);
+
+  // Atualizar URLs das imagens quando as solicitações mudarem
+  useEffect(() => {
+    const updateImageUrls = () => {
+      const imageUrls: Record<string, string> = {};
+      
+      for (const solicitation of solicitations) {
+        if (isPecasSolicitation(solicitation.solicitacao) && solicitation.url_imagem_pecas) {
+          imageUrls[solicitation.id] = solicitation.url_imagem_pecas;
+          console.log('✅ Imagem encontrada no banco:', solicitation.url_imagem_pecas);
+        }
+      }
+      
+      setPecasImageUrls(imageUrls);
+    };
+    
+    updateImageUrls();
+  }, [solicitations]); // Roda sempre que as solicitações mudarem
 
   // Função para gerar descrição curta das peças
   const getShortDescription = (description: string, maxLength: number = 50) => {
@@ -187,21 +356,30 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
           pdfLaudo: pdfUrl
         });
         
-        // Enviar webhook específico para peças
-        const webhookSuccess = await sendPecasImageWebhook(
-          solicitationForPecas,
-          pdfUrl
+        // Enviar webhook com URL do PDF (similar ao fluxo de combustível)
+        const solicitationWithPDF = {
+          ...solicitationForPecas,
+          pdfLaudo: pdfUrl,
+          valorPeca: data.valorPeca,
+          lojaAutorizada: data.loja,
+          descricaoCompletaPecas: data.descricaoCompleta
+        };
+        
+        // USAR FUNÇÃO ESPECÍFICA PARA PEÇAS - força tipo 'aprovacao'
+        const webhookSuccess = await sendPecasApprovalWebhook(
+          solicitationWithPDF,
+          'aprovado'
         );
 
         if (webhookSuccess) {
           toast({
-            title: "Peça autorizada com sucesso",
+            title: "Peça autorizada e webhook enviado",
             description: `PDF gerado e notificação enviada para ${solicitationForPecas.nome}`,
           });
         } else {
           toast({
             title: "Peça autorizada mas webhook falhou",
-            description: "PDF foi gerado mas falha ao enviar notificação",
+            description: `PDF gerado para ${solicitationForPecas.nome} mas falha ao enviar notificação`,
             variant: "destructive",
           });
         }
@@ -237,8 +415,8 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
       let webhookSuccess;
       
       if (isPecas) {
-        // Webhook específico para peças rejeitadas (sem dados do supervisor)
-        webhookSuccess = await sendApprovalWebhook(
+        // USAR FUNÇÃO ESPECÍFICA PARA PEÇAS REJEITADAS - força tipo 'aprovacao'
+        webhookSuccess = await sendPecasApprovalWebhook(
           solicitationForRejection,
           'rejeitado',
           data.reason
@@ -327,7 +505,24 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
       if (newStatus === 'aprovado') {
         // Verificar se é solicitação de peças
         if (isPecasSolicitation(solicitation.solicitacao)) {
-          // Para peças, abrir dialog para solicitar dados
+          // VALIDAÇÃO OBRIGATÓRIA: Verificar se há imagem da peça
+          const hasImage = pecasImageUrls[solicitation.id] || solicitation.url_imagem_pecas;
+          
+          if (!hasImage) {
+            // Se não há imagem, mostrar alerta e abrir modal personalizado
+            toast({
+              title: "⚠️ Imagem obrigatória para peças!",
+              description: "Para aprovar uma solicitação de peças é necessário ter a imagem. Clique no botão azul para verificar se há imagem no sistema.",
+              variant: "destructive",
+            });
+            
+            // Abrir modal personalizado para confirmação
+            setSolicitationForImageRequest(solicitation);
+            setImageRequestModalOpen(true);
+            return; // Não continuar com aprovação
+          }
+          
+          // Se há imagem, continuar com o fluxo normal
           setSolicitationForPecas(solicitation);
           setPecasDialogOpen(true);
           return; // Não continuar com o fluxo normal
@@ -485,12 +680,50 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
         <Button
           variant="outline"
           size="sm"
-          onClick={() => handleToggle('pendente')}
+          onClick={() => {
+            console.log('🖱️ Botão clicado para solicitação:', solicitation.id);
+            console.log('🔧 É peças?', isPecasSolicitation(solicitation.solicitacao));
+            console.log('🖼️ URL no estado:', pecasImageUrls[solicitation.id]);
+            console.log('🗃️ URL no banco:', solicitation.url_imagem_pecas);
+            
+            // Se é solicitação de peças
+            if (isPecasSolicitation(solicitation.solicitacao)) {
+              // Se tem imagem, abrir modal
+              if (pecasImageUrls[solicitation.id] || solicitation.url_imagem_pecas) {
+                const imageUrl = pecasImageUrls[solicitation.id] || solicitation.url_imagem_pecas;
+                console.log('✅ Abrindo modal com URL:', imageUrl);
+                openImageModal(imageUrl!, solicitation);
+              } else {
+                // Se não tem imagem, verificar se existe no bucket
+                console.log('🔍 Iniciando verificação no bucket...');
+                checkSinglePecasImage(solicitation.id);
+              }
+            } else {
+              // Se não é peças, comportamento normal (pendente)
+              console.log('⚪ Não é peças, marcando como pendente');
+              handleToggle('pendente');
+            }
+          }}
           className={`transition-all duration-200 ${
-            currentStatus === 'pendente' 
-              ? 'bg-gray-500 text-white border-gray-600 hover:bg-gray-600' 
-              : 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'
+            // Se é peças e tem imagem, botão laranja
+            isPecasSolicitation(solicitation.solicitacao) && 
+            (pecasImageUrls[solicitation.id] || solicitation.url_imagem_pecas)
+              ? 'bg-orange-500 text-white border-orange-600 hover:bg-orange-600'
+              // Se é peças mas não tem imagem, botão azul
+              : isPecasSolicitation(solicitation.solicitacao)
+                ? 'bg-blue-500 text-white border-blue-600 hover:bg-blue-600'
+                : currentStatus === 'pendente' 
+                  ? 'bg-gray-500 text-white border-gray-600 hover:bg-gray-600' 
+                  : 'bg-gray-100 text-gray-600 border-gray-300 hover:bg-gray-200'
           }`}
+          title={
+            isPecasSolicitation(solicitation.solicitacao) && 
+            (pecasImageUrls[solicitation.id] || solicitation.url_imagem_pecas)
+              ? 'Clique para ver a imagem da peça'
+              : isPecasSolicitation(solicitation.solicitacao)
+                ? 'Clique para verificar se há imagem da peça'
+                : 'Marcar como pendente'
+          }
         >
           <AlertCircle className="w-3 h-3" />
         </Button>
@@ -857,6 +1090,174 @@ export function SolicitationTable({ solicitations, onUpdate, onDelete }: Solicit
                     title="Visualizador de PDF"
                     style={{ border: 'none' }}
                   />
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de confirmação para solicitação de imagem */}
+      <Dialog open={imageRequestModalOpen} onOpenChange={setImageRequestModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-600">
+              <AlertTriangle className="h-6 w-6" />
+              Imagem Obrigatória para Peças
+            </DialogTitle>
+            <DialogDescription>
+              Para aprovar solicitações de peças é necessário ter a imagem da peça.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {solicitationForImageRequest && (
+            <div className="space-y-4">
+              {/* Informações da solicitação */}
+              <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
+                <h4 className="font-medium text-orange-800 mb-2">Solicitação:</h4>
+                <div className="space-y-1 text-sm text-orange-700">
+                  <p><span className="font-medium">Motoboy:</span> {solicitationForImageRequest.nome}</p>
+                  <p><span className="font-medium">Placa:</span> {solicitationForImageRequest.placa}</p>
+                  <p><span className="font-medium">Peça:</span> {solicitationForImageRequest.descricaoPecas || 'Não informado'}</p>
+                  <p><span className="font-medium">Valor:</span> R$ {solicitationForImageRequest.valor || '0,00'}</p>
+                </div>
+              </div>
+
+              {/* Opções */}
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                <h4 className="font-medium text-blue-800 mb-2">O que deseja fazer?</h4>
+                <div className="space-y-2 text-sm text-blue-700">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span><strong>Enviar Solicitação:</strong> Solicitar foto via WhatsApp</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                    <span><strong>Verificar Sistema:</strong> Clique no botão azul na tabela</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Botões de ação */}
+              <div className="flex gap-3 justify-end">
+                <Button
+                  variant="outline"
+                  onClick={handleCancelImageRequest}
+                  className="flex items-center gap-2"
+                >
+                  <Search className="w-4 h-4" />
+                  Verificar Sistema
+                </Button>
+                <Button
+                  onClick={handleConfirmImageRequest}
+                  className="bg-green-600 hover:bg-green-700 flex items-center gap-2"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  Solicitar Foto
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal para visualização da imagem de peças */}
+      <Dialog open={imageModalOpen} onOpenChange={setImageModalOpen}>
+        <DialogContent className="max-w-5xl max-h-[95vh] p-0 overflow-hidden flex flex-col">
+          <DialogHeader className="p-6 pb-4 flex-shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Wrench className="h-5 w-5 text-orange-500" />
+              Imagem da Peça - {currentImageSolicitation?.nome}
+            </DialogTitle>
+            <DialogDescription>
+              Visualize a imagem enviada pelo motoboy para a solicitação de peças
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-y-auto p-6 pt-0">
+            {currentImageUrl && currentImageSolicitation && (
+              <div className="space-y-4">
+                {/* Informações da solicitação */}
+                <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
+                  <h4 className="font-medium text-orange-800 mb-2">Detalhes da Solicitação:</h4>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="font-medium text-orange-700">Motoboy:</span>
+                      <span className="ml-2 text-orange-800">{currentImageSolicitation.nome}</span>
+                    </div>
+                    <div>
+                      <span className="font-medium text-orange-700">Placa:</span>
+                      <span className="ml-2 text-orange-800">{currentImageSolicitation.placa}</span>
+                    </div>
+                    <div>
+                      <span className="font-medium text-orange-700">Descrição:</span>
+                      <span className="ml-2 text-orange-800">{currentImageSolicitation.descricaoPecas || 'Não informado'}</span>
+                    </div>
+                    <div>
+                      <span className="font-medium text-orange-700">Status:</span>
+                      <span className="ml-2 text-orange-800">{currentImageSolicitation.status}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Botões de ação */}
+                <div className="flex justify-between items-center">
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => window.open(currentImageUrl, '_blank')}
+                      className="bg-orange-600 hover:bg-orange-700"
+                    >
+                      <ExternalLink className="w-4 h-4 mr-2" />
+                      Abrir em Nova Aba
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        navigator.clipboard.writeText(currentImageUrl);
+                        toast({
+                          title: "URL copiada!",
+                          description: "A URL da imagem foi copiada para a área de transferência.",
+                        });
+                      }}
+                    >
+                      <Copy className="w-4 h-4 mr-2" />
+                      Copiar URL
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Visualização da imagem com scroll */}
+                <div className="bg-gray-50 rounded-lg p-4 border-2 border-gray-200">
+                  <div className="text-center mb-4">
+                    <p className="text-sm text-gray-600">
+                      📸 Use o scroll para navegar pela imagem completa
+                    </p>
+                  </div>
+                  <div className="overflow-auto max-h-[60vh] border rounded-lg bg-white p-2">
+                    <img
+                      src={currentImageUrl}
+                      alt={`Imagem da peça - ${currentImageSolicitation.nome}`}
+                      className="w-full h-auto rounded-lg shadow-lg cursor-zoom-in"
+                      onClick={() => window.open(currentImageUrl, '_blank')}
+                      onError={(e) => {
+                        console.error('Erro ao carregar imagem:', currentImageUrl);
+                        toast({
+                          title: "Erro ao carregar imagem",
+                          description: "Não foi possível carregar a imagem. Verifique se o arquivo existe.",
+                          variant: "destructive",
+                        });
+                      }}
+                      style={{ 
+                        minHeight: '200px',
+                        objectFit: 'contain'
+                      }}
+                    />
+                  </div>
+                  <div className="text-center mt-2">
+                    <p className="text-xs text-gray-500">
+                      💡 Clique na imagem para abrir em tamanho real
+                    </p>
+                  </div>
                 </div>
               </div>
             )}

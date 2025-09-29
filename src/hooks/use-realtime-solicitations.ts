@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Solicitation } from '@/types/solicitation';
-import { sendNewSolicitationWebhook, sendValePecasWebhook, sendApprovalWebhook } from '@/lib/webhook-new';
+import { sendNewSolicitationWebhook, sendApprovalWebhook } from '@/lib/webhook-new';
 import { useToast } from '@/hooks/use-toast';
 
 export function useRealtimeSolicitations() {
@@ -54,6 +54,10 @@ export function useRealtimeSolicitations() {
       descricaoCompletaPecas: item.descricao_completa_pecas || undefined,
       supervisor_codigo: item.supervisor_codigo || undefined,
       supervisor: item.supervisor_codigo ? supervisorsMap[item.supervisor_codigo] || undefined : undefined,
+      // Campos de imagem de peças
+      url_imagem_pecas: item.url_imagem_pecas || undefined,
+      data_recebimento_imagem: item.data_recebimento_imagem || undefined,
+      status_imagem: item.status_imagem || undefined,
       created_at: item.created_at,
     }));
   }, []);
@@ -397,49 +401,6 @@ export function useRealtimeSolicitations() {
 
                 // Mostrar notificação baseada no tipo de evento
                 if (payload.eventType === 'INSERT') {
-                  // Disparar webhook APENAS para solicitações de Vale Peças
-                  if (payload.new) {
-                    try {
-                      const newSolicitation = payload.new;
-                      console.log('🆕 Nova solicitação detectada via realtime:', newSolicitation);
-                      
-                      // Verificar se é uma solicitação de Vale Peças
-                      const isValePecas = newSolicitation.solicitacao && 
-                        (newSolicitation.solicitacao.toLowerCase().includes('peças') || 
-                         newSolicitation.solicitacao.toLowerCase().includes('pecas') ||
-                         newSolicitation.solicitacao.toLowerCase().includes('vale peças') ||
-                         newSolicitation.solicitacao.toLowerCase().includes('vale pecas'));
-                      
-                      if (isValePecas) {
-                        console.log('🔧 Solicitação de Vale Peças detectada - disparando webhook');
-                        
-                        // Converter dados do Supabase para formato do webhook
-                        const webhookData = {
-                          id: newSolicitation.id,
-                          nome: newSolicitation.nome,
-                          fone: newSolicitation.fone,
-                          matricula: newSolicitation.matricula,
-                          placa: newSolicitation.placa,
-                          solicitacao: newSolicitation.solicitacao,
-                          valor: newSolicitation.valor,
-                          valorCombustivel: newSolicitation.valor_combustivel,
-                          descricaoPecas: newSolicitation.descricao_pecas,
-                          status: newSolicitation.status,
-                          aprovacaoSup: newSolicitation.aprovacao_sup,
-                          data: newSolicitation.data,
-                          supervisor_codigo: newSolicitation.supervisor_codigo,
-                        };
-                        
-                        // Disparar webhook específico para Vale Peças
-                        await sendValePecasWebhook(webhookData);
-                        console.log('✅ Webhook de Vale Peças disparado via realtime');
-                      } else {
-                        console.log('ℹ️ Solicitação não é de Vale Peças - webhook não será disparado');
-                      }
-                    } catch (webhookError) {
-                      console.error('❌ Erro ao disparar webhook via realtime:', webhookError);
-                    }
-                  }
                   
                   toast({
                     title: "Nova solicitação recebida! 🚀",

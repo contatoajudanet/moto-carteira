@@ -64,6 +64,10 @@ export function useSupabase() {
           descricaoCompletaPecas: item.descricao_completa_pecas || undefined,
           supervisor_codigo: item.supervisor_codigo || undefined,
           supervisor: item.supervisor_codigo ? supervisorsMap[item.supervisor_codigo] || undefined : undefined,
+          // Campos de imagem de peças
+          url_imagem_pecas: item.url_imagem_pecas || undefined,
+          data_recebimento_imagem: item.data_recebimento_imagem || undefined,
+          status_imagem: item.status_imagem || undefined,
           created_at: item.created_at,
         };
       }) || [];

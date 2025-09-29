@@ -48,7 +48,7 @@ import {
 interface WebhookConfig {
   id: string;
   nome: string;
-  tipo: 'aprovacao' | 'pecas_imagem' | 'geral';
+  tipo: 'aprovacao' | 'geral';
   url: string;
   ativo: boolean;
   descricao?: string;
@@ -137,9 +137,28 @@ export function WebhookConfigPanel() {
     }
   };
 
+  // Desativar webhooks do tipo pecas_imagem (removido do sistema)
+  const deactivatePecasImagemWebhooks = async () => {
+    try {
+      const { error } = await supabase
+        .from('webhook_configs_motoboy')
+        .update({ ativo: false })
+        .eq('tipo', 'pecas_imagem');
+
+      if (error) {
+        console.error('Erro ao desativar webhooks de pecas_imagem:', error);
+      } else {
+        console.log('✅ Webhooks do tipo pecas_imagem desativados automaticamente');
+      }
+    } catch (error) {
+      console.error('Erro ao desativar webhooks de pecas_imagem:', error);
+    }
+  };
+
   useEffect(() => {
     fetchWebhooks();
     fetchLogs();
+    deactivatePecasImagemWebhooks(); // Desativar webhooks de peças automaticamente
   }, []);
 
   // Salvar webhook
@@ -337,7 +356,6 @@ export function WebhookConfigPanel() {
   const getTipoLabel = (tipo: string) => {
     const labels = {
       aprovacao: 'Aprovação/Rejeição',
-      pecas_imagem: 'Imagem de Peças',
       geral: 'Geral'
     };
     return labels[tipo as keyof typeof labels] || tipo;
@@ -346,7 +364,6 @@ export function WebhookConfigPanel() {
   const getTipoColor = (tipo: string) => {
     const colors = {
       aprovacao: 'bg-blue-100 text-blue-800',
-      pecas_imagem: 'bg-orange-100 text-orange-800',
       geral: 'bg-gray-100 text-gray-800'
     };
     return colors[tipo as keyof typeof colors] || 'bg-gray-100 text-gray-800';
@@ -400,7 +417,6 @@ export function WebhookConfigPanel() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="aprovacao">Aprovação/Rejeição</SelectItem>
-                      <SelectItem value="pecas_imagem">Imagem de Peças</SelectItem>
                       <SelectItem value="geral">Geral</SelectItem>
                     </SelectContent>
                   </Select>
