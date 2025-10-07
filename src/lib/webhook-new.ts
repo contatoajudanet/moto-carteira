@@ -4,7 +4,7 @@ import { Solicitation } from '@/types/solicitation';
 export interface WebhookConfig {
   id: string;
   nome: string;
-  tipo: 'aprovacao' | 'pecas_imagem' | 'geral';
+  tipo: 'aprovacao' | 'geral';
   url: string;
   ativo: boolean;
   descricao?: string;
@@ -16,6 +16,12 @@ export interface WebhookConfig {
 // Buscar webhook por tipo
 export async function getWebhookByType(tipo: string): Promise<WebhookConfig | null> {
   try {
+    // Ignorar webhooks de peças (removido do sistema) - BLOQUEIO TOTAL
+    if (tipo === 'pecas_imagem' || tipo?.toLowerCase().includes('pecas')) {
+      console.log('🚫 Busca por webhook de peças BLOQUEADA - funcionalidade removida do sistema. Tipo:', tipo);
+      return null;
+    }
+
     const { data, error } = await supabase
       .from('webhook_configs_motoboy')
       .select('*')
@@ -74,8 +80,28 @@ export async function executeWebhook(
   solicitacaoId?: string
 ): Promise<boolean> {
   try {
+    // Ignorar webhooks de peças (removido do sistema) - BLOQUEIO TOTAL
+    if (tipo === 'pecas_imagem' || tipo?.toLowerCase().includes('pecas')) {
+      console.log('🚫 Webhook de peças BLOQUEADO - funcionalidade removida do sistema. Tipo:', tipo);
+      return false;
+    }
+
     // Buscar configuração do webhook
-    const webhookConfig = await getWebhookByType(tipo);
+    let webhookConfig = await getWebhookByType(tipo);
+    
+    // FALLBACK: Se não encontrar webhook 'aprovacao', usar configuração fixa
+    if (!webhookConfig && tipo === 'aprovacao') {
+      console.log('⚠️ Webhook aprovacao não encontrado no banco, usando configuração fixa');
+      webhookConfig = {
+        id: 'fallback-aprovacao',
+        nome: 'Webhook Aprovação (Fallback)',
+        tipo: 'aprovacao',
+        url: 'https://evo-youtube-n8n.3sbind.easypanel.host/webhook/6fb80aa6-6aa4-45f6-90ea-37ae18b8ca1e',
+        ativo: true,
+        timeout: 30000,
+        retry_attempts: 3
+      };
+    }
     
     if (!webhookConfig) {
       console.log(`Nenhum webhook ativo encontrado para o tipo: ${tipo}`);
@@ -194,30 +220,58 @@ export async function sendApprovalWebhook(
     }
   }
 
+  // Determinar se é uma solicitação de peças
+  const isPecas = solicitation.solicitacao?.toLowerCase().includes('peça') || 
+                  solicitation.solicitacao?.toLowerCase().includes('pecas') || 
+                  solicitation.solicitacao === 'Vale Pecas';
+  
+  // Usar valor apropriado baseado no tipo de solicitação
+  const valorFormatado = isPecas 
+    ? (solicitation.valorPeca?.toFixed(2) || '0,00')
+    : (solicitation.valorCombustivel?.toFixed(2) || solicitation.valor || '0,00');
+
+  let mensagem = '';
+  if (status === 'aprovado') {
+    if (isPecas) {
+      mensagem = `🔧 AUTORIZADO! Olá *${solicitation.nome}*, sua solicitação de peça foi APROVADA pelo supervisor. Você pode retirar a peça na loja ${solicitation.lojaAutorizada || 'autorizada'} no valor de R$ ${valorFormatado}.`;
+    } else {
+      mensagem = `✅ AUTORIZADO! Olá *${solicitation.nome}*, sua solicitação de ${solicitation.solicitacao} no valor de R$ ${valorFormatado} foi APROVADA pelo supervisor. Você pode retirar o vale ou realizar a compra.`;
+    }
+  } else {
+    mensagem = `❌ NEGADO! Olá *${solicitation.nome}*, sua solicitação de ${solicitation.solicitacao} foi NEGADA pelo supervisor. Motivo: ${motivo || 'Não informado'}. Entre em contato para mais informações.`;
+  }
+
   const payload = {
-    mensagem: status === 'aprovado' 
-      ? `✅ AUTORIZADO! Olá *${solicitation.nome}*, sua solicitação de ${solicitation.solicitacao} no valor de R$ ${solicitation.valor || '0,00'} foi APROVADA pelo supervisor. Você pode retirar o vale ou realizar a compra.`
-      : `❌ NEGADO! Olá *${solicitation.nome}*, sua solicitação de ${solicitation.solicitacao} foi NEGADA pelo supervisor. Motivo: ${motivo || 'Não informado'}. Entre em contato para mais informações.`,
+    mensagem,
     id: solicitation.id, // ID da solicitação
     nome: solicitation.nome,
     telefone: solicitation.fone,
     aprovacao_sup: status,
     solicitacao: solicitation.solicitacao,
-    valor: solicitation.valor,
+    valor: isPecas ? solicitation.valorPeca : (solicitation.valorCombustivel || solicitation.valor),
+    valor_peca: solicitation.valorPeca || null,
+    loja_autorizada: solicitation.lojaAutorizada || null,
+    descricao_completa_pecas: solicitation.descricaoCompletaPecas || null,
     motivo: motivo,
     pdf_url: solicitation.pdfLaudo || null, // Incluir URL do PDF se disponível
     pdf_base64: pdfBase64, // Incluir base64 do PDF se disponível
     timestamp: new Date().toISOString()
   };
 
+  // FORÇAR tipo 'aprovacao' - NUNCA usar tipos relacionados a peças
+  console.log('📤 [WEBHOOK] Enviando webhook de aprovação - Tipo: aprovacao');
   return await executeWebhook('aprovacao', payload, solicitation.id);
 }
 
-// Webhook de imagem de peças
-export async function sendPecasImageWebhook(
+
+// Webhook específico para aprovação de PEÇAS - usa mesmo fluxo do combustível
+export async function sendPecasApprovalWebhook(
   solicitation: Solicitation,
-  imageUrl: string
+  status: 'aprovado' | 'rejeitado',
+  motivo?: string
 ): Promise<boolean> {
+  // Usar EXATAMENTE o mesmo código do sendApprovalWebhook mas forçando tipo 'aprovacao'
+  
   // Obter base64 do PDF se disponível
   let pdfBase64 = null;
   if (solicitation.pdfLaudo) {
@@ -229,20 +283,69 @@ export async function sendPecasImageWebhook(
     }
   }
 
+  // Determinar se é uma solicitação de peças
+  const isPecas = solicitation.solicitacao?.toLowerCase().includes('peça') || 
+                  solicitation.solicitacao?.toLowerCase().includes('pecas') || 
+                  solicitation.solicitacao === 'Vale Pecas';
+  
+  // Usar valor apropriado baseado no tipo de solicitação
+  const valorFormatado = isPecas 
+    ? (solicitation.valorPeca?.toFixed(2) || '0,00')
+    : (solicitation.valorCombustivel?.toFixed(2) || solicitation.valor || '0,00');
+
+  let mensagem = '';
+  if (status === 'aprovado') {
+    if (isPecas) {
+      mensagem = `🔧 AUTORIZADO! Olá *${solicitation.nome}*, sua solicitação de peça foi APROVADA pelo supervisor. Você pode retirar a peça na loja ${solicitation.lojaAutorizada || 'autorizada'} no valor de R$ ${valorFormatado}.`;
+    } else {
+      mensagem = `✅ AUTORIZADO! Olá *${solicitation.nome}*, sua solicitação de ${solicitation.solicitacao} no valor de R$ ${valorFormatado} foi APROVADA pelo supervisor. Você pode retirar o vale ou realizar a compra.`;
+    }
+  } else {
+    mensagem = `❌ NEGADO! Olá *${solicitation.nome}*, sua solicitação de ${solicitation.solicitacao} foi NEGADA pelo supervisor. Motivo: ${motivo || 'Não informado'}. Entre em contato para mais informações.`;
+  }
+
   const payload = {
-    mensagem: `Certo, *${solicitation.nome}*, estamos quase finalizando, agora preciso de uma foto do orçamento realizado na loja, foto nítida e clara da peça solicitada: *${solicitation.descricaoPecas || 'peça'}*.`,
-    id: solicitation.id, // ID da solicitação
+    mensagem,
+    id: solicitation.id,
     nome: solicitation.nome,
     telefone: solicitation.fone,
+    aprovacao_sup: status,
     solicitacao: solicitation.solicitacao,
-    descricao_pecas: solicitation.descricaoPecas,
-    imagem_url: imageUrl,
-    pdf_url: solicitation.pdfLaudo || null, // Incluir URL do PDF se disponível
-    pdf_base64: pdfBase64, // Incluir base64 do PDF se disponível
+    valor: isPecas ? solicitation.valorPeca : (solicitation.valorCombustivel || solicitation.valor),
+    valor_peca: solicitation.valorPeca || null,
+    loja_autorizada: solicitation.lojaAutorizada || null,
+    descricao_completa_pecas: solicitation.descricaoCompletaPecas || null,
+    motivo: motivo,
+    pdf_url: solicitation.pdfLaudo || null,
+    pdf_base64: pdfBase64,
     timestamp: new Date().toISOString()
   };
 
-  return await executeWebhook('pecas_imagem', payload, solicitation.id);
+  // FORÇAR SEMPRE tipo 'aprovacao' - JAMAIS usar qualquer tipo relacionado a peças
+  console.log('🔧 [WEBHOOK-PECAS] Enviando webhook de PEÇAS usando tipo: aprovacao');
+  return await executeWebhook('aprovacao', payload, solicitation.id);
+}
+
+// Webhook específico para solicitar imagem de peças
+export async function sendImageRequestWebhook(solicitation: Solicitation): Promise<boolean> {
+  const payload = {
+    mensagem: `📸 SOLICITAÇÃO DE IMAGEM\n\nOlá *${solicitation.nome}*!\n\nPara finalizar a aprovação da sua solicitação de peças, precisamos da foto da peça.\n\n🔧 *Peça solicitada:* ${solicitation.descricaoPecas || 'Peça para manutenção'}\n🚗 *Placa:* ${solicitation.placa}\n💰 *Valor estimado:* R$ ${solicitation.valor || '0,00'}\n\n📱 *Por favor, envie a foto da peça para prosseguirmos com a aprovação.*\n\n⚠️ *Importante:* A foto é obrigatória para liberação do vale peças.`,
+    id: solicitation.id,
+    nome: solicitation.nome,
+    telefone: solicitation.fone,
+    tipo_solicitacao: 'Solicitação de Imagem',
+    solicitacao: 'Solicitação de Imagem',
+    valor: solicitation.valor,
+    placa: solicitation.placa,
+    descricao_pecas: solicitation.descricaoPecas,
+    tag: 'SOLICITACAO_IMAGEM',
+    status: 'aguardando_imagem',
+    motivo: 'Imagem obrigatória para aprovação de peças',
+    timestamp: new Date().toISOString()
+  };
+
+  console.log('📸 [WEBHOOK-IMAGEM] Enviando solicitação de imagem:', payload);
+  return await executeWebhook('aprovacao', payload, solicitation.id);
 }
 
 // Webhook para nova solicitação
@@ -261,51 +364,6 @@ export async function sendNewSolicitationWebhook(solicitation: Solicitation): Pr
   return await executeWebhook('geral', payload, solicitation.id);
 }
 
-// Webhook para vale peças
-export async function sendValePecasWebhook(
-  solicitation: {
-    id: string;
-    nome: string;
-    fone: string;
-    matricula: string;
-    placa: string;
-    solicitacao: string;
-    valor?: string;
-    valorCombustivel?: number | null;
-    descricaoPecas?: string | null;
-    valorPeca?: number | null;
-    lojaAutorizada?: string | null;
-    pdfLaudo?: string | null; // Adicionar campo para PDF
-  }
-): Promise<boolean> {
-  // Obter base64 do PDF se disponível
-  let pdfBase64 = null;
-  if (solicitation.pdfLaudo) {
-    try {
-      const { getPDFBase64FromUrl } = await import('./supabase-storage');
-      pdfBase64 = await getPDFBase64FromUrl(solicitation.pdfLaudo);
-    } catch (error) {
-      console.error('Erro ao obter base64 do PDF:', error);
-    }
-  }
-
-  const payload = {
-    mensagem: `Certo, *${solicitation.nome}*, estamos quase finalizando, agora preciso de uma foto do orçamento realizado na loja, foto nítida e clara da peça solicitada: *${solicitation.descricaoPecas || 'peça'}*.`,
-    id: solicitation.id, // ID da solicitação
-    nome: solicitation.nome,
-    telefone: solicitation.fone,
-    aprovacao_sup: 'pendente',
-    solicitacao: solicitation.solicitacao,
-    valor_peca: solicitation.valorPeca,
-    loja_autorizada: solicitation.lojaAutorizada,
-    descricao_pecas: solicitation.descricaoPecas,
-    pdf_url: solicitation.pdfLaudo || null, // Incluir URL do PDF se disponível
-    pdf_base64: pdfBase64, // Incluir base64 do PDF se disponível
-    timestamp: new Date().toISOString()
-  };
-
-  return await executeWebhook('pecas_imagem', payload, solicitation.id);
-}
 
 // Testar webhook
 export async function testWebhook(webhookConfig: WebhookConfig): Promise<boolean> {

@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 export interface WebhookConfig {
   id: string;
   nome: string;
-  tipo: 'aprovacao' | 'pecas_imagem' | 'geral';
+  tipo: 'aprovacao' | 'geral';
   url: string;
   ativo: boolean;
   descricao?: string;
@@ -38,6 +38,12 @@ export function useWebhooks() {
   // Buscar webhook por tipo
   const getWebhookByType = useCallback(async (tipo: string): Promise<WebhookConfig | null> => {
     try {
+      // Ignorar webhooks de peças (removido do sistema) - BLOQUEIO TOTAL
+      if (tipo === 'pecas_imagem' || tipo?.toLowerCase().includes('pecas')) {
+        console.log('🚫 Busca por webhook de peças BLOQUEADA - funcionalidade removida do sistema. Tipo:', tipo);
+        return null;
+      }
+
       const { data, error } = await supabase
         .from('webhook_configs_motoboy')
         .select('*')
@@ -69,6 +75,12 @@ export function useWebhooks() {
     solicitacaoId?: string
   ): Promise<boolean> => {
     try {
+      // Ignorar webhooks de peças (removido do sistema) - BLOQUEIO TOTAL
+      if (tipo === 'pecas_imagem' || tipo?.toLowerCase().includes('pecas')) {
+        console.log('🚫 Webhook de peças BLOQUEADO - funcionalidade removida do sistema. Tipo:', tipo);
+        return false;
+      }
+
       // Buscar configuração do webhook
       const webhookConfig = await getWebhookByType(tipo);
       
@@ -211,23 +223,6 @@ export function useWebhooks() {
     return await executeWebhook('aprovacao', payload, solicitation.id);
   }, [executeWebhook]);
 
-  // Webhook de imagem de peças
-  const sendPecasImageWebhook = useCallback(async (
-    solicitation: any,
-    imageUrl: string
-  ) => {
-    const payload = {
-      mensagem: `📸 Imagem recebida! Olá ${solicitation.nome}, recebemos a imagem da peça solicitada. Nossa equipe irá analisar e em breve você receberá uma resposta.`,
-      nome: solicitation.nome,
-      telefone: solicitation.fone,
-      solicitacao: solicitation.solicitacao,
-      descricao_pecas: solicitation.descricaoPecas,
-      imagem_url: imageUrl,
-      timestamp: new Date().toISOString()
-    };
-
-    return await executeWebhook('pecas_imagem', payload, solicitation.id);
-  }, [executeWebhook]);
 
   // Testar webhook
   const testWebhook = useCallback(async (webhookConfig: WebhookConfig): Promise<boolean> => {
@@ -248,7 +243,6 @@ export function useWebhooks() {
     getWebhookByType,
     executeWebhook,
     sendApprovalWebhook,
-    sendPecasImageWebhook,
     testWebhook,
     logWebhookCall
   };

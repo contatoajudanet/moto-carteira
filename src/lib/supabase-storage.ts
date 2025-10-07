@@ -197,3 +197,37 @@ export const createStorageBucket = async () => {
     return false;
   }
 };
+
+// Verificar se existe imagem de peças no bucket
+export const checkPecasImageExists = async (solicitacaoId: string): Promise<string | null> => {
+  try {
+    const imagePath = solicitacaoId; // O ID da solicitação é o nome do arquivo
+    
+    // Verificar se o arquivo existe no bucket motoboy-images
+    const { data, error } = await supabase.storage
+      .from('motoboy-images')
+      .list('', {
+        search: imagePath
+      });
+
+    if (error) {
+      console.error('Erro ao verificar imagem de peças:', error);
+      return null;
+    }
+
+    // Se encontrou o arquivo, retornar a URL pública
+    if (data && data.length > 0) {
+      const { data: urlData } = supabase.storage
+        .from('motoboy-images')
+        .getPublicUrl(imagePath);
+      
+      console.log('🖼️ Imagem de peças encontrada:', urlData.publicUrl);
+      return urlData.publicUrl;
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Erro ao verificar imagem de peças:', error);
+    return null;
+  }
+};
