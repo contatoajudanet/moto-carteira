@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Truck, Clock, CheckCircle, XCircle, RefreshCw, Wifi, WifiOff, Settings, User } from 'lucide-react';
+import { Plus, Truck, Clock, CheckCircle, XCircle, RefreshCw, Wifi, WifiOff, Settings, User, Users } from 'lucide-react';
 import { SolicitationTable } from './SolicitationTable';
 import { NewSolicitationDialog } from './NewSolicitationDialog';
 import { SupervisorSelector } from './SupervisorSelector';
 import { WebhookConfigPanel } from './WebhookConfigPanel';
 import { MotoboyPanel } from './MotoboyPanel';
+import { SupervisorPanel } from './SupervisorPanel';
 import { Solicitation, SolicitationStatus } from '@/types/solicitation';
 import { useRealtimeSolicitations } from '@/hooks/use-realtime-solicitations';
 import { useToast } from '@/hooks/use-toast';
@@ -16,7 +17,7 @@ export default function Dashboard() {
   const [statusFilter, setStatusFilter] = useState<SolicitationStatus>('todas');
   const [supervisorFilter, setSupervisorFilter] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'solicitations' | 'webhooks' | 'motoboys'>('solicitations');
+  const [activeTab, setActiveTab] = useState<'solicitations' | 'webhooks' | 'motoboys' | 'supervisores'>('solicitations');
   
   const { 
     solicitations,
@@ -255,7 +256,7 @@ export default function Dashboard() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(value: any) => setActiveTab(value)} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="solicitations" className="flex items-center gap-2">
               <Truck className="w-4 h-4" />
               Solicitações
@@ -267,6 +268,10 @@ export default function Dashboard() {
             <TabsTrigger value="motoboys" className="flex items-center gap-2">
               <User className="w-4 h-4" />
               Motoboys
+            </TabsTrigger>
+            <TabsTrigger value="supervisores" className="flex items-center gap-2">
+              <Users className="w-4 h-4" />
+              Supervisores
             </TabsTrigger>
           </TabsList>
 
@@ -320,6 +325,10 @@ export default function Dashboard() {
 
           <TabsContent value="motoboys" className="space-y-6">
             <MotoboyPanel />
+          </TabsContent>
+
+          <TabsContent value="supervisores" className="space-y-6">
+            <SupervisorPanel />
           </TabsContent>
         </Tabs>
 
